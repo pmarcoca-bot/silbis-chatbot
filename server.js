@@ -64,7 +64,7 @@ Cuando tengas nombre, fecha, hora y personas confirma con: RESERVA_CONFIRMADA|no
 Sé breve y amable.`;
 
   const messages = (historial || []).map(m => ({ role: m.origen === 'bot' ? 'assistant' : 'user', content: m.texto }));
-  const response = await claude.messages.create({ model: 'claude-sonnet-4-20250514', max_tokens: 500, system: systemPrompt, messages });
+  const response = await claude.messages.create({ model: 'claude-sonnet-4-5', max_tokens: 500, system: systemPrompt, messages });
   const respuesta = response.content[0].text;
   await sb.from('mensajes').insert({ conversacion_id: conv.id, origen: 'bot', texto: respuesta });
   if (respuesta.includes('RESERVA_CONFIRMADA|')) {
