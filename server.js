@@ -52,6 +52,23 @@ app.get('/confirmar/:reservaId', async (req, res) => {
   }
 });
 
+
+// ── REENVIAR CONFIRMACIÓN DESDE PANEL ──
+app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
+  const { reservaId } = req.params;
+  try {
+    const { data: reserva } = await sb.from('reservas').select('*').eq('id', reservaId).single();
+    if (!reserva) return res.status(404).json({ error: 'No encontrada' });
+    const baseUrl = process.env.BASE_URL || 'https://earnest-illumination-production-dd04.up.railway.app';
+    const link = `${baseUrl}/confirmar/${reservaId}`;
+    const fechaLegible = formatFechaLegible(reserva.fecha);
+    await enviarMensajeConfirmacion(reserva.cliente_telefono, reserva, link, fechaLegible);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── WEBHOOK MENSAJES ──
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
