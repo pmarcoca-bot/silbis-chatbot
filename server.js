@@ -10,28 +10,49 @@ app.use(express.json());
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_KEY });
 
-app.get('/', (req, res) => res.json({ status: 'Silbis chatbot activo 🍔' }));
+// ── HEALTH CHECK ──
+app.get('/', (req, res) => res.json({ status: 'Silbis chatbot activo 🍔', time: new Date().toISOString() }));
 
+// ── WEBHOOK VERIFICACIÓN ──
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
   if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
+    console.log('✅ Webhook verificado');
     res.status(200).send(challenge);
-  } else { res.sendStatus(403); }
+  } else {
+    res.sendStatus(403);
+  }
 });
 
+// ── CONFIRMACIÓN DE RESERVA (link) ──
 app.get('/confirmar/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
   try {
     const { data: reserva } = await sb.from('reservas').select('*').eq('id', reservaId).single();
     if (!reserva) return res.status(404).send('Reserva no encontrada');
+
     await sb.from('reservas').update({ estado: 'confirmada' }).eq('id', reservaId);
+
+    // Notificar al cliente por WhatsApp
     const msg = `✅ ¡Reserva confirmada! Te esperamos en Silbis el ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0,5)}h. ¡Hasta pronto! 🍔`;
     await enviarWhatsApp(reserva.cliente_telefono, msg);
-    res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#0c0b0a;color:#f0ebe0"><h1 style="color:#bf3228">🍔 Silbis</h1><h2>¡Reserva confirmada!</h2><p>Tu mesa está reservada para el <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0,5)}h</strong></p><p style="color:#888">C/ Carnicerías, 2 — Tudela · 661 656 648</p></body></html>`);
-  } catch (err) { res.status(500).send('Error al confirmar'); }
+
+    res.send(`
+      <html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#0c0b0a;color:#f0ebe0">
+        <h1 style="color:#bf3228">🍔 Silbis</h1>
+        <h2>¡Reserva confirmada!</h2>
+        <p>Tu mesa está reservada para el <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0,5)}h</strong></p>
+        <p style="color:#888">C/ Carnicerías, 2 — Tudela · 661 656 648</p>
+      </body></html>`);
+  } catch (err) {
+    console.error('Error confirmando:', err.message);
+    res.status(500).send('Error al confirmar la reserva');
+  }
 });
+
+// ── WEBHOOK MENSAJES ──
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
   try {
@@ -42,11 +63,16 @@ app.post('/webhook', async (req, res) => {
     const telefono = message.from;
     const texto = message.text.body;
     const nombre = value?.contacts?.[0]?.profile?.name || 'Cliente';
+    console.log(`📩 ${nombre} (${telefono}): ${texto}`);
     await procesarMensaje(telefono, nombre, texto);
-  } catch (err) { console.error('Error webhook:', err.message); }
+  } catch (err) {
+    console.error('Error webhook:', err.message);
+  }
 });
 
+// ── PROCESAR MENSAJE ──
 async function procesarMensaje(telefono, nombre, texto) {
+  // Buscar o crear conversación
   let { data: conv } = await sb.from('conversaciones').select('*').eq('cliente_telefono', telefono).single();
   if (!conv) {
     const { data: nueva } = await sb.from('conversaciones').insert({
@@ -59,42 +85,106 @@ async function procesarMensaje(telefono, nombre, texto) {
       ultimo_mensaje: texto, sin_leer: true, updated_at: new Date().toISOString()
     }).eq('id', conv.id);
   }
+
+  // Guardar mensaje usuario
   await sb.from('mensajes').insert({ conversacion_id: conv.id, origen: 'user', texto });
-  const { data: historial } = await sb.from('mensajes').select('*').eq('conversacion_id', conv.id).order('created_at', { ascending: true }).limit(30);
-  const { data: config } = await sb.from('config').select('*').eq('id', '00000000-0000-0000-0000-000000000001').single();
+
+  // Historial conversación
+  const { data: historial } = await sb.from('mensajes').select('*')
+    .eq('conversacion_id', conv.id).order('created_at', { ascending: true }).limit(30);
+
+  // Config restaurante
+  const { data: config } = await sb.from('config').select('*')
+    .eq('id', '00000000-0000-0000-0000-000000000001').single();
+
+  // Horarios
   const { data: horarios } = await sb.from('horarios').select('*').eq('activo', true).order('dia');
   const diasNombre = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
-  const horariosTexto = horarios?.map(h => `${diasNombre[h.dia]} (${h.turno}): ${h.hora_inicio?.slice(0,5)} - ${h.hora_fin?.slice(0,5)}`).join(', ') || 'jueves a domingo en cena';
+  const horariosTexto = horarios?.map(h =>
+    `${diasNombre[h.dia]} (${h.turno}): ${h.hora_inicio?.slice(0,5)} - ${h.hora_fin?.slice(0,5)}`
+  ).join(', ') || 'jueves a domingo en cena, sábados también en comida';
+
+  // Fecha actual para referencia
   const ahora = new Date();
   const fechaHoy = ahora.toISOString().slice(0, 10);
   const diaActual = diasNombre[ahora.getDay() === 0 ? 6 : ahora.getDay() - 1];
-  const manana = new Date(ahora.getTime() + 86400000).toISOString().slice(0,10);
 
-  const systemPrompt = `Eres ${config?.bot_nombre || 'Silbi'}, el asistente de reservas de ${config?.nombre || 'Silbis'}, hamburguesería artesana en Tudela.
-FECHA HOY: ${fechaHoy} (${diaActual})
-MAÑANA: ${manana}
-HORARIOS: ${horariosTexto}
-DIRECCIÓN: ${config?.direccion} | TEL: ${config?.telefono} | MÁX PERSONAS: ${config?.max_personas || 8}
+  const systemPrompt = `Eres ${config?.bot_nombre || 'Silbi'}, el asistente de reservas de ${config?.nombre || 'Silbis'}, una hamburguesería artesana en Tudela (Navarra).
 
-INSTRUCCIONES:
-1. FECHAS COLOQUIALES: interpreta "mañana", "el viernes", "este finde", "la semana que viene"... y conviértelas a YYYY-MM-DD.
-2. PETICIONES ESPECIALES: si mencionan tronas, silla de ruedas, alergias, celebración — anótalo.
-3. FLUJO: recoge personas, día, hora y nombre. Muestra resumen y pide confirmación explícita del cliente.
-4. Solo cuando el cliente diga sí/confirmo/ok emite: RESERVA_LISTA|nombre|YYYY-MM-DD|HH:MM|numPersonas|notas
-5. Sé breve y amable 😊. Responde siempre en español.`;
+FECHA Y DÍA ACTUAL: ${fechaHoy} (${diaActual})
+HORARIOS DE APERTURA: ${horariosTexto}
+DIRECCIÓN: ${config?.direccion || 'C/ Carnicerías, 2 — Tudela'}
+TELÉFONO: ${config?.telefono || '661 656 648'}
+MÁXIMO PERSONAS POR RESERVA: ${config?.max_personas || 8}
 
-  const messages = (historial || []).map(m => ({ role: m.origen === 'bot' ? 'assistant' : 'user', content: m.texto }));
-  const response = await claude.messages.create({ model: 'claude-sonnet-4-5', max_tokens: 600, system: systemPrompt, messages });
+INSTRUCCIONES IMPORTANTES:
+
+1. FECHAS: Los clientes hablan de forma coloquial. Interpreta correctamente:
+   - "mañana" = ${new Date(ahora.getTime() + 86400000).toISOString().slice(0,10)}
+   - "este viernes", "el viernes" = calcula la fecha del próximo viernes desde hoy
+   - "el sábado que viene" = calcula el sábado próximo
+   - "hoy" = ${fechaHoy}
+   Siempre convierte a formato YYYY-MM-DD internamente.
+
+2. PETICIONES ESPECIALES: Si el cliente menciona:
+   - Tronas para bebés → anótalo en notas
+   - Silla de ruedas, movilidad reducida → anótalo, confirma que el local es accesible
+   - Alergias o intolerancias → anótalo en notas
+   - Mesa especial, celebración, cumpleaños → anótalo en notas
+
+3. FLUJO DE RESERVA:
+   - Recoge: número de personas, día, hora, nombre
+   - Verifica que el día y hora estén dentro del horario de apertura
+   - Si hay peticiones especiales, recógelas
+   - Cuando tengas todo, muestra un resumen y pide confirmación al cliente
+   - Solo cuando el cliente confirme explícitamente, emite la reserva
+
+4. FORMATO DE RESERVA CONFIRMADA (solo cuando el cliente haya dicho OK/sí/confirmo):
+   RESERVA_LISTA|nombre|YYYY-MM-DD|HH:MM|numPersonas|notas_especiales
+
+5. Sé breve, amable y usa algún emoji. Responde siempre en español.
+6. Si preguntan por el menú, explica que son hamburguesas artesanas y que pueden ver la carta en silbis.es`;
+
+  const messages = (historial || []).map(m => ({
+    role: m.origen === 'bot' ? 'assistant' : 'user',
+    content: m.texto
+  }));
+
+  const response = await claude.messages.create({
+    model: 'claude-sonnet-4-5',
+    max_tokens: 600,
+    system: systemPrompt,
+    messages
+  });
+
   const respuesta = response.content[0].text;
+
+  // Guardar respuesta bot
   await sb.from('mensajes').insert({ conversacion_id: conv.id, origen: 'bot', texto: respuesta });
-  if (respuesta.includes('RESERVA_LISTA|')) await crearReservaPend
-  async function crearReservaPendiente(texto, nombre, telefono) {
+
+  // Detectar reserva lista
+  if (respuesta.includes('RESERVA_LISTA|')) {
+    await crearReservaPendiente(respuesta, nombre, telefono);
+  }
+
+  // Enviar respuesta limpia al cliente
+  const mensajeCliente = respuesta.replace(/RESERVA_LISTA\|[^\n]*/g, '').trim();
+  await enviarWhatsApp(telefono, mensajeCliente || respuesta);
+}
+
+// ── CREAR RESERVA PENDIENTE ──
+async function crearReservaPendiente(texto, nombre, telefono) {
   try {
     const match = texto.match(/RESERVA_LISTA\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|?(.*)?/);
     if (!match) return;
+
     const [, clienteNombre, fecha, hora, personas, notas] = match;
+
+    // Buscar mesa disponible
     const numPersonas = parseInt(personas);
-    const { data: mesas } = await sb.from('mesas').select('*').eq('estado', 'libre').gte('capacidad', numPersonas).order('capacidad').limit(1);
+    const { data: mesas } = await sb.from('mesas').select('*')
+      .eq('estado', 'libre').gte('capacidad', numPersonas).order('capacidad').limit(1);
+
     const { data: reserva, error } = await sb.from('reservas').insert({
       cliente_nombre: clienteNombre.trim(),
       cliente_telefono: telefono,
@@ -106,46 +196,78 @@ INSTRUCCIONES:
       canal: 'whatsapp',
       notas: notas?.trim() || null
     }).select().single();
-    if (error) { console.error('Error reserva:', error.message); return; }
-    if (mesas?.[0]) await sb.from('mesas').update({ estado: 'reservada' }).eq('id', mesas[0].id);
-    console.log(`📋 Reserva pendiente: ${clienteNombre} — ${fecha} ${hora}`);
+
+    if (error) { console.error('Error creando reserva:', error.message); return; }
+
+    // Marcar mesa como reservada
+    if (mesas?.[0]) {
+      await sb.from('mesas').update({ estado: 'reservada' }).eq('id', mesas[0].id);
+    }
+
+    console.log(`📋 Reserva pendiente: ${clienteNombre} — ${fecha} ${hora} — ${numPersonas} personas`);
+
+    // Programar mensaje de confirmación para el día de la reserva
     await programarConfirmacion(reserva, telefono);
-  } catch (err) { console.error('Error crearReserva:', err.message); }
+
+  } catch (err) {
+    console.error('Error en crearReservaPendiente:', err.message);
+  }
 }
 
+// ── PROGRAMAR CONFIRMACIÓN ──
 async function programarConfirmacion(reserva, telefono) {
-  const baseUrl = process.env.BASE_URL || 'https://earnest-illumination-production-dd04.up.railway.app';
-  const link = `${baseUrl}/confirmar/${reserva.id}`;
+  const baseUrl = process.env.BASE_URL || `https://earnest-illumination-production-dd04.up.railway.app`;
+  const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
   const fechaLegible = formatFechaLegible(reserva.fecha);
+
+  // Guardar el link en la reserva para referencia
+  await sb.from('reservas').update({ notas: (reserva.notas ? reserva.notas + ' | ' : '') + `link_confirm:${linkConfirmar}` }).eq('id', reserva.id);
+
+  // Calcular si la reserva es hoy
   const hoy = new Date().toISOString().slice(0, 10);
   if (reserva.fecha === hoy) {
-    await enviarMensajeConfirmacion(telefono, reserva, link, fechaLegible);
+    // Es hoy — enviar confirmación ahora
+    await enviarMensajeConfirmacion(telefono, reserva, linkConfirmar, fechaLegible);
   } else {
-    await sb.from('confirmaciones_pendientes').insert({
-      reserva_id: reserva.id, telefono,
-      fecha_envio: reserva.fecha, link, enviado: false
-    });
-    console.log(`📅 Confirmación programada para ${reserva.fecha}`);
+    // Guardar para envío programado (se procesará en el cron)
+    await sb.from('confirmaciones_pendientes').upsert({
+      reserva_id: reserva.id,
+      telefono,
+      fecha_envio: reserva.fecha,
+      link: linkConfirmar,
+      enviado: false
+    }).select();
+    console.log(`📅 Confirmación programada para el ${reserva.fecha}`);
   }
 }
 
 async function enviarMensajeConfirmacion(telefono, reserva, link, fechaLegible) {
-  const msg = `¡Hola ${reserva.cliente_nombre}! 👋\n\nTe recordamos tu reserva en *Silbis* para *hoy ${fechaLegible}* a las *${reserva.hora.slice(0,5)}h* (${reserva.num_personas} personas).\n\n👇 Confirma tu asistencia:\n${link}\n\n_Si no puedes venir escríbenos o llámanos al 661 656 648._`;
+  const msg = `¡Hola ${reserva.cliente_nombre}! 👋\n\nTe recordamos tu reserva en *Silbis* para *hoy ${fechaLegible}* a las *${reserva.hora.slice(0,5)}h* (${reserva.num_personas} personas).\n\n👇 Confirma tu asistencia pulsando aquí:\n${link}\n\n_Si no confirmas, la mesa podría liberarse. Para cancelar escríbenos o llámanos al 661 656 648._`;
   await enviarWhatsApp(telefono, msg);
+  console.log(`📤 Mensaje de confirmación enviado a ${telefono}`);
 }
 
+// ── CRON: enviar confirmaciones del día ──
 async function procesarConfirmacionesDia() {
   const hoy = new Date().toISOString().slice(0, 10);
-  const { data: pendientes } = await sb.from('confirmaciones_pendientes').select('*, reservas(*)').eq('fecha_envio', hoy).eq('enviado', false);
+  const { data: pendientes } = await sb.from('confirmaciones_pendientes')
+    .select('*, reservas(*)').eq('fecha_envio', hoy).eq('enviado', false);
+
   if (!pendientes?.length) return;
+
   for (const p of pendientes) {
-    if (!p.reservas) continue;
-    await enviarMensajeConfirmacion(p.telefono, p.reservas, p.link, formatFechaLegible(p.reservas.fecha));
+    const reserva = p.reservas;
+    if (!reserva) continue;
+    const fechaLegible = formatFechaLegible(reserva.fecha);
+    await enviarMensajeConfirmacion(p.telefono, reserva, p.link, fechaLegible);
     await sb.from('confirmaciones_pendientes').update({ enviado: true }).eq('id', p.id);
   }
 }
 
+// Ejecutar cron cada hora
 setInterval(procesarConfirmacionesDia, 60 * 60 * 1000);
+
+// ── ENVIAR WHATSAPP ──
 async function enviarWhatsApp(telefono, mensaje) {
   try {
     await axios.post(
@@ -159,6 +281,7 @@ async function enviarWhatsApp(telefono, mensaje) {
   }
 }
 
+// ── HELPERS ──
 function formatFechaLegible(fecha) {
   if (!fecha) return '';
   const d = new Date(fecha + 'T12:00:00');
