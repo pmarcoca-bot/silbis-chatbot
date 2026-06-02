@@ -226,13 +226,45 @@ async function crearReservaPendiente(texto, nombre, telefono) {
   try {
     const match = texto.match(/RESERVA_LISTA\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|?(.*)?/);
     if (!match) return;
-
     const [, clienteNombre, fecha, hora, personas, notas] = match;
-
-    // Buscar mesa disponible
     const numPersonas = parseInt(personas);
-    const { data: mesas } = await sb.from('mesas').select('*')
-      .eq('estado', 'libre').gte('capacidad', numPersonas).order('capacidad').limit(1);
+
+    // Buscar mesa individual suficiente
+    const { data: mesasLibres } = await sb.from('mesas').select('*').eq('estado', 'libre').order('capacidad');
+    const mesaExacta = mesasLibres?.find(m => m.capacidad >= numPersonas);
+
+    let mesaAsignada = null;
+    let mesasAgrupadas = [];
+    let notaFinal = notas?.trim() || '';
+
+    if (mesaExacta) {
+      mesaAsignada = mesaExacta;
+    } else if (mesasLibres?.length >= 2) {
+      // Intentar combinar mesas
+      let capacidadAcumulada = 0;
+      const candidatas = [];
+      for (const m of mesasLibres) {
+        candidatas.push(m);
+        capacidadAcumulada += m.capacidad;
+        if (capacidadAcumulada >= numPersonas) break;
+      }
+      if (capacidadAcumulada >= numPersonas) {
+        mesasAgrupadas = candidatas;
+        mesaAsignada = candidatas[0];
+        const nums = candidatas.map(m => m.numero).join(' + ');
+        notaFinal = (notaFinal ? notaFinal + ' | ' : '') + `Mesas agrupadas: ${nums}`;
+        console.log(`🔗 Mesas agrupadas: ${nums} para ${numPersonas} personas`);
+      }
+    }
+
+    if (!mesaAsignada) {
+      // No hay solución — derivar al teléfono
+      const msgSinMesa = mesasLibres?.length === 0
+        ? `Lo siento 😔, no tenemos mesas disponibles para ese horario. Llámanos al *661 656 648* y te buscamos la mejor opción. ¡Disculpa las molestias!`
+        : `Para una reserva de *${numPersonas} personas* necesitamos confirmarte disponibilidad manualmente. Por favor llámanos al *661 656 648* o escríbenos y te atendemos enseguida 🙏`;
+      await enviarWhatsApp(telefono, msgSinMesa);
+      return;
+    }
 
     const { data: reserva, error } = await sb.from('reservas').insert({
       cliente_nombre: clienteNombre.trim(),
@@ -240,30 +272,25 @@ async function crearReservaPendiente(texto, nombre, telefono) {
       fecha: fecha.trim(),
       hora: hora.trim(),
       num_personas: numPersonas,
-      mesa_numero: mesas?.[0]?.numero || null,
+      mesa_numero: mesaAsignada.numero,
       estado: 'pendiente',
       canal: 'whatsapp',
-      notas: notas?.trim() || null
+      notas: notaFinal || null
     }).select().single();
 
-    if (error) { console.error('Error creando reserva:', error.message); return; }
+    if (error) { console.error('Error reserva:', error.message); return; }
 
-    // Marcar mesa como reservada
-    if (mesas?.[0]) {
-      await sb.from('mesas').update({ estado: 'reservada' }).eq('id', mesas[0].id);
+    const mesasAReservar = mesasAgrupadas.length > 0 ? mesasAgrupadas : [mesaAsignada];
+    for (const m of mesasAReservar) {
+      await sb.from('mesas').update({ estado: 'reservada' }).eq('id', m.id);
     }
 
-    console.log(`📋 Reserva pendiente: ${clienteNombre} — ${fecha} ${hora} — ${numPersonas} personas`);
-
-    // Programar mensaje de confirmación para el día de la reserva
+    console.log(`📋 Reserva: ${clienteNombre} — ${fecha} ${hora} — mesa(s): ${mesasAReservar.map(m=>m.numero).join('+')}`);
     await programarConfirmacion(reserva, telefono);
-
-  } catch (err) {
-    console.error('Error en crearReservaPendiente:', err.message);
-  }
+  } catch (err) { console.error('Error crearReserva:', err.message); }
 }
 
-// ── PROGRAMAR CONFIRMACIÓN ──
+
 async function programarConfirmacion(reserva, telefono) {
   const baseUrl = process.env.BASE_URL || `https://earnest-illumination-production-dd04.up.railway.app`;
   const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
