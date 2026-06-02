@@ -13,6 +13,16 @@ const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_KEY });
 // ── HEALTH CHECK ──
 app.get('/', (req, res) => res.json({ status: 'Silbis chatbot activo 🍔', time: new Date().toISOString() }));
 
+// ── ACORTAR URL ──
+async function acortarUrl(url) {
+  try {
+    const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`);
+    return res.data || url;
+  } catch(e) {
+    return url;
+  }
+}
+
 // ── WEBHOOK VERIFICACIÓN ──
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -52,6 +62,28 @@ app.get('/confirmar/:reservaId', async (req, res) => {
   }
 });
 
+
+// ── CANCELAR RESERVA (link) ──
+app.get('/cancelar/:reservaId', async (req, res) => {
+  const { reservaId } = req.params;
+  try {
+    const { data: reserva } = await sb.from('reservas').select('*').eq('id', reservaId).single();
+    if (!reserva) return res.status(404).send('Reserva no encontrada');
+    if (reserva.estado === 'cancelada') {
+      return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#0c0b0a;color:#f0ebe0"><h1 style="color:#bf3228">🍔 Silbis</h1><h2>Esta reserva ya estaba cancelada</h2><p style="color:#888">Si necesitas ayuda llámanos al 661 656 648</p></body></html>`);
+    }
+    await sb.from('reservas').update({ estado: 'cancelada' }).eq('id', reservaId);
+    // Liberar mesa si tenía asignada
+    if (reserva.mesa_numero) {
+      await sb.from('mesas').update({ estado: 'libre' }).eq('numero', reserva.mesa_numero);
+    }
+    const msg = `❌ Tu reserva en Silbis del ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0,5)}h ha sido cancelada. Si fue un error escríbenos o llámanos al 661 656 648. ¡Hasta pronto!`;
+    await enviarWhatsApp(reserva.cliente_telefono, msg);
+    res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#0c0b0a;color:#f0ebe0"><h1 style="color:#bf3228">🍔 Silbis</h1><h2>Reserva cancelada</h2><p>Tu reserva del <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0,5)}h</strong> ha sido cancelada.</p><p style="color:#888;margin-top:16px">Si fue un error llámanos al 661 656 648</p></body></html>`);
+  } catch (err) {
+    res.status(500).send('Error al cancelar');
+  }
+});
 
 // ── REENVIAR CONFIRMACIÓN DESDE PANEL ──
 app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
@@ -259,9 +291,26 @@ async function programarConfirmacion(reserva, telefono) {
 }
 
 async function enviarMensajeConfirmacion(telefono, reserva, link, fechaLegible) {
-  const msg = `¡Hola ${reserva.cliente_nombre}! 👋\n\nTe recordamos tu reserva en *Silbis* para *hoy ${fechaLegible}* a las *${reserva.hora.slice(0,5)}h* (${reserva.num_personas} personas).\n\n👇 Confirma tu asistencia pulsando aquí:\n${link}\n\n_Si no confirmas, la mesa podría liberarse. Para cancelar escríbenos o llámanos al 661 656 648._`;
+  const baseUrl = process.env.BASE_URL || 'https://earnest-illumination-production-dd04.up.railway.app';
+  const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
+
+  // Acortar ambos links
+  const [linkCorto, linkCancelCorto] = await Promise.all([
+    acortarUrl(link),
+    acortarUrl(linkCancelar)
+  ]);
+
+  const msg = `¡Hola ${reserva.cliente_nombre}! 👋
+
+Te recordamos tu reserva en *Silbis* para *${fechaLegible}* a las *${reserva.hora.slice(0,5)}h* (${reserva.num_personas} personas).
+
+✅ Confirmar asistencia: ${linkCorto}
+
+❌ Cancelar reserva: ${linkCancelCorto}
+
+_Cualquier duda llámanos al 661 656 648_ 🍔`;
   await enviarWhatsApp(telefono, msg);
-  console.log(`📤 Mensaje de confirmación enviado a ${telefono}`);
+  console.log(`📤 Confirmación enviada a ${telefono}`);
 }
 
 // ── CRON: enviar confirmaciones del día ──
