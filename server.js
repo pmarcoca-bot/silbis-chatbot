@@ -173,6 +173,108 @@ app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ─────────────────────────────────────────────────────────────
+// ENVIAR AVISO MANUAL DESDE PANEL Y GUARDAR HISTORIAL
+// ─────────────────────────────────────────────────────────────
+app.post('/reservas/:reservaId/avisos', async (req, res) => {
+  const { reservaId } = req.params;
+  const { tipo = 'recordatorio', mensaje_personalizado = null, enviado_por = 'panel' } = req.body || {};
+
+  try {
+    const { data: reserva, error } = await sb
+      .from('reservas')
+      .select('*')
+      .eq('id', reservaId)
+      .single();
+
+    if (error || !reserva) {
+      return res.status(404).json({ ok: false, error: 'Reserva no encontrada' });
+    }
+
+    if (!reserva.cliente_telefono) {
+      return res.status(400).json({ ok: false, error: 'La reserva no tiene teléfono asociado' });
+    }
+
+    const baseUrl = getPublicBaseUrl();
+    const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
+    const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
+    const fechaLegible = formatFechaLegible(reserva.fecha);
+    const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
+
+    let mensaje;
+
+    if (tipo === 'ultimo_aviso') {
+      mensaje = `Hola ${reserva.cliente_nombre}, tu reserva en Silbis para hoy a las ${hora}, para ${reserva.num_personas} personas, sigue pendiente de confirmación.
+
+Si quieres mantenerla, puedes confirmarla aquí:
+${linkConfirmar}
+
+Si finalmente no puedes venir, puedes cancelarla aquí:
+${linkCancelar}
+
+Si no recibimos confirmación, es posible que el restaurante libere la mesa para otros clientes.`;
+    } else if (tipo === 'personalizado' && mensaje_personalizado) {
+      mensaje = `${mensaje_personalizado}
+
+Confirmar reserva:
+${linkConfirmar}
+
+Cancelar reserva:
+${linkCancelar}`;
+    } else {
+      mensaje = `Hola ${reserva.cliente_nombre}, te recordamos que tu reserva en Silbis para hoy a las ${hora}, para ${reserva.num_personas} personas, sigue pendiente de confirmación.
+
+Puedes confirmarla aquí:
+${linkConfirmar}
+
+Si finalmente no puedes venir, puedes cancelarla aquí:
+${linkCancelar}
+
+Gracias.`;
+    }
+
+    try {
+      await enviarWhatsApp(reserva.cliente_telefono, mensaje);
+
+      await sb
+        .from('avisos_reserva')
+        .insert({
+          reserva_id: reserva.id,
+          telefono: reserva.cliente_telefono,
+          tipo,
+          mensaje,
+          enviado_por,
+          estado: 'enviado'
+        });
+
+      return res.json({
+        ok: true,
+        tipo,
+        enviado_at: new Date().toISOString()
+      });
+    } catch (sendError) {
+      await sb
+        .from('avisos_reserva')
+        .insert({
+          reserva_id: reserva.id,
+          telefono: reserva.cliente_telefono,
+          tipo,
+          mensaje,
+          enviado_por,
+          estado: 'error',
+          error: sendError.message
+        });
+
+      return res.status(500).json({
+        ok: false,
+        error: sendError.message
+      });
+    }
+  } catch (err) {
+    console.error('Error enviando aviso:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────
 // WEBHOOK MENSAJES WHATSAPP
