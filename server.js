@@ -482,7 +482,18 @@ async function crearReservaPendiente(texto, nombre, telefono, config, horarios) 
 
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
+const antelacionMinima = getMinAntelacionMinutos(config);
+const minutosRestantes = minutesUntilReservation(fecha, hora);
 
+if (minutosRestantes < antelacionMinima) {
+  const msgPocaAntelacion = `Para reservas con menos de una hora y media de antelación, es mejor que nos llames directamente al 661 656 648.
+
+Así podemos confirmarte disponibilidad al momento y atenderte mejor.`;
+
+  await enviarWhatsApp(telefono, msgPocaAntelacion);
+
+  return { ok: false, handledWithoutSendingCleanMessage: true };
+}
     if (!estaDentroDeHorario(horarios, fecha, hora)) {
       const msgFueraHorario = `Lo siento, ese día u hora no aparece dentro del horario de reservas de Silbis. Dime otra hora o, si lo prefieres, llámanos al 661 656 648 y lo vemos contigo.`;
       await enviarWhatsApp(telefono, msgFueraHorario);
@@ -881,6 +892,47 @@ function normalizarHoraReserva(horaRaw) {
   if (h < 0 || h > 23 || m < 0 || m > 59) return null;
 
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+function getMinAntelacionMinutos(config) {
+  const configHoras = Number(config?.antelacion_min_h);
+  const configMinutos = Number.isFinite(configHoras) && configHoras > 0
+    ? Math.round(configHoras * 60)
+    : 0;
+
+  return Math.max(configMinutos, 90);
+}
+
+function minutesUntilReservation(fecha, hora) {
+  const today = getMadridTodayISO();
+  const todayDate = isoToUTCDate(today);
+  const reservaDate = isoToUTCDate(fecha);
+
+  if (!todayDate || !reservaDate) return -9999;
+
+  const diffDays = Math.round((reservaDate - todayDate) / (24 * 60 * 60 * 1000));
+  const reservaMinutos = timeToMinutes(hora);
+  const ahoraMinutos = getMadridNowMinutes();
+
+  if (reservaMinutos === null || ahoraMinutos === null) return -9999;
+
+  return (diffDays * 1440) + reservaMinutos - ahoraMinutos;
+}
+
+function getMadridNowMinutes() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date());
+
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  const hour = parseInt(map.hour, 10);
+  const minute = parseInt(map.minute, 10);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+
+  return hour * 60 + minute;
 }
 
 function timeToMinutes(hora) {
