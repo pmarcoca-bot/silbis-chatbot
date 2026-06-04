@@ -518,14 +518,7 @@ async function programarConfirmacion(reserva, telefono) {
   const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
   const fechaLegible = formatFechaLegible(reserva.fecha);
 
-  await sb
-    .from('reservas')
-    .update({
-      notas: (reserva.notas ? reserva.notas + ' | ' : '') + `link_confirm:${linkConfirmar}`
-    })
-    .eq('id', reserva.id);
-
-  const hoy = getMadridTodayISO();
+    const hoy = getMadridTodayISO();
 
   if (reserva.fecha === hoy) {
     await enviarMensajeConfirmacion(telefono, reserva, linkConfirmar, fechaLegible);
