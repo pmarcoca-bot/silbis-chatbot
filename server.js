@@ -11,29 +11,37 @@ const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_KEY });
 
 const TIMEZONE = 'Europe/Madrid';
-const DIAS_SEMANA = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-const DIAS_SEMANA_NORMALIZADOS = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
-const DIAS_HORARIOS = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
-const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const DIAS_SEMANA_NORMALIZADOS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+const DIAS_HORARIOS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
-// ── HEALTH CHECK ──
-app.get('/', (req, res) => res.json({ status: 'Silbis chatbot activo 🍔', time: new Date().toISOString() }));
+// ─────────────────────────────────────────────────────────────
+// HEALTH CHECK
+// ─────────────────────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({ status: 'Silbis chatbot activo', time: new Date().toISOString() });
+});
 
-// ── WEBHOOK VERIFICACIÓN ──
+// ─────────────────────────────────────────────────────────────
+// WEBHOOK VERIFICACIÓN META
+// ─────────────────────────────────────────────────────────────
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
   if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
-    console.log('✅ Webhook verificado');
+    console.log('Webhook verificado');
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
   }
 });
 
-// ── CONFIRMACIÓN DE RESERVA ──
+// ─────────────────────────────────────────────────────────────
+// CONFIRMAR RESERVA DESDE LINK
+// ─────────────────────────────────────────────────────────────
 app.get('/confirmar/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -51,16 +59,23 @@ app.get('/confirmar/:reservaId', async (req, res) => {
       .update({ estado: 'confirmada' })
       .eq('id', reservaId);
 
-    const msg = `✅ ¡Reserva confirmada! Te esperamos en Silbis el ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0,5)}h. ¡Hasta pronto! 🍔`;
+    const msg = `Perfecto, tu reserva en Silbis queda confirmada para el ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0, 5)}. Te esperamos. Si necesitas cualquier cosa, puedes llamarnos al 661 656 648.`;
     await enviarWhatsApp(reserva.cliente_telefono, msg);
 
     res.send(`
       <html>
-        <body style="font-family:sans-serif;text-align:center;padding:40px;background:#0c0b0a;color:#f0ebe0">
-          <h1 style="color:#bf3228">🍔 Silbis</h1>
-          <h2>¡Reserva confirmada!</h2>
-          <p>Tu mesa está reservada para el <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0,5)}h</strong></p>
-          <p style="color:#888">C/ Carnicerías, 2 — Tudela · 661 656 648</p>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Reserva confirmada | Silbis</title>
+        </head>
+        <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:40px;background:#141416;color:#f5f5f7">
+          <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
+            <h1 style="color:#bf3228;margin:0 0 12px">Silbis</h1>
+            <h2 style="margin:0 0 16px">Reserva confirmada</h2>
+            <p>Tu mesa está reservada para el <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0, 5)}</strong>.</p>
+            <p style="color:#a1a1a6;margin-top:20px">C/ Carnicerías, 2 — Tudela · 661 656 648</p>
+          </div>
         </body>
       </html>
     `);
@@ -70,7 +85,9 @@ app.get('/confirmar/:reservaId', async (req, res) => {
   }
 });
 
-// ── CANCELAR RESERVA ──
+// ─────────────────────────────────────────────────────────────
+// CANCELAR RESERVA DESDE LINK
+// ─────────────────────────────────────────────────────────────
 app.get('/cancelar/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -86,10 +103,13 @@ app.get('/cancelar/:reservaId', async (req, res) => {
     if (reserva.estado === 'cancelada') {
       return res.send(`
         <html>
-          <body style="font-family:sans-serif;text-align:center;padding:40px;background:#0c0b0a;color:#f0ebe0">
-            <h1 style="color:#bf3228">🍔 Silbis</h1>
-            <h2>Esta reserva ya estaba cancelada</h2>
-            <p style="color:#888">Si necesitas ayuda llámanos al 661 656 648</p>
+          <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+          <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:40px;background:#141416;color:#f5f5f7">
+            <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
+              <h1 style="color:#bf3228">Silbis</h1>
+              <h2>Esta reserva ya estaba cancelada</h2>
+              <p style="color:#a1a1a6">Si necesitas ayuda, llámanos al 661 656 648.</p>
+            </div>
           </body>
         </html>
       `);
@@ -100,16 +120,23 @@ app.get('/cancelar/:reservaId', async (req, res) => {
       .update({ estado: 'cancelada' })
       .eq('id', reservaId);
 
-    const msg = `❌ Tu reserva en Silbis del ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0,5)}h ha sido cancelada. Si fue un error escríbenos o llámanos al 661 656 648. ¡Hasta pronto!`;
+    const msg = `Tu reserva en Silbis del ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0, 5)} ha quedado cancelada. Si ha sido un error o quieres hacer otra reserva, escríbenos o llámanos al 661 656 648.`;
     await enviarWhatsApp(reserva.cliente_telefono, msg);
 
     res.send(`
       <html>
-        <body style="font-family:sans-serif;text-align:center;padding:40px;background:#0c0b0a;color:#f0ebe0">
-          <h1 style="color:#bf3228">🍔 Silbis</h1>
-          <h2>Reserva cancelada</h2>
-          <p>Tu reserva del <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0,5)}h</strong> ha sido cancelada.</p>
-          <p style="color:#888;margin-top:16px">Si fue un error llámanos al 661 656 648</p>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Reserva cancelada | Silbis</title>
+        </head>
+        <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:40px;background:#141416;color:#f5f5f7">
+          <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
+            <h1 style="color:#bf3228;margin:0 0 12px">Silbis</h1>
+            <h2 style="margin:0 0 16px">Reserva cancelada</h2>
+            <p>Tu reserva del <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0, 5)}</strong> ha quedado cancelada.</p>
+            <p style="color:#a1a1a6;margin-top:20px">Si ha sido un error, llámanos al 661 656 648.</p>
+          </div>
         </body>
       </html>
     `);
@@ -119,7 +146,9 @@ app.get('/cancelar/:reservaId', async (req, res) => {
   }
 });
 
-// ── REENVIAR CONFIRMACIÓN DESDE PANEL ──
+// ─────────────────────────────────────────────────────────────
+// REENVIAR CONFIRMACIÓN DESDE PANEL
+// ─────────────────────────────────────────────────────────────
 app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -145,7 +174,9 @@ app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
   }
 });
 
-// ── WEBHOOK MENSAJES ──
+// ─────────────────────────────────────────────────────────────
+// WEBHOOK MENSAJES WHATSAPP
+// ─────────────────────────────────────────────────────────────
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 
@@ -160,7 +191,7 @@ app.post('/webhook', async (req, res) => {
     const texto = message.text.body;
     const nombre = value?.contacts?.[0]?.profile?.name || 'Cliente';
 
-    console.log(`📩 ${nombre} (${telefono}): ${texto}`);
+    console.log(`Mensaje recibido de ${nombre} (${telefono}): ${texto}`);
 
     await procesarMensaje(telefono, nombre, texto);
   } catch (err) {
@@ -168,7 +199,9 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ── PROCESAR MENSAJE ──
+// ─────────────────────────────────────────────────────────────
+// PROCESAR MENSAJE
+// ─────────────────────────────────────────────────────────────
 async function procesarMensaje(telefono, nombre, texto) {
   let { data: conv } = await sb
     .from('conversaciones')
@@ -229,13 +262,14 @@ async function procesarMensaje(telefono, nombre, texto) {
     .order('dia');
 
   const horariosTexto = horarios?.map(h =>
-    `${DIAS_HORARIOS[h.dia]} (${h.turno}): ${h.hora_inicio?.slice(0,5)} - ${h.hora_fin?.slice(0,5)}`
+    `${DIAS_HORARIOS[h.dia]} (${h.turno}): ${h.hora_inicio?.slice(0, 5)} - ${h.hora_fin?.slice(0, 5)}`
   ).join(', ') || 'jueves a domingo en cena, sábados también en comida';
 
   const fechaHoy = getMadridTodayISO();
   const diaActual = weekdayNameFromISO(fechaHoy);
   const manana = addDaysISO(fechaHoy, 1);
   const calendarioProximosDias = buildCalendarContext(fechaHoy, 28);
+  const duracionReserva = getReservaDuration(config);
 
   const systemPrompt = `Eres ${config?.bot_nombre || 'Silbi'}, el asistente de reservas de ${config?.nombre || 'Silbis'}, una hamburguesería artesana en Tudela (Navarra).
 
@@ -245,16 +279,17 @@ HORARIOS DE APERTURA: ${horariosTexto}
 DIRECCIÓN: ${config?.direccion || 'C/ Carnicerías, 2 — Tudela'}
 TELÉFONO: ${config?.telefono || '661 656 648'}
 MÁXIMO PERSONAS POR RESERVA: ${config?.max_personas || 8}
+DURACIÓN ESTIMADA POR RESERVA: ${duracionReserva} minutos
 
-CALENDARIO REAL DE PRÓXIMOS DÍAS. Usa esta tabla y NO calcules los días de memoria:
+CALENDARIO REAL DE PRÓXIMOS DÍAS. Usa esta tabla y no calcules los días de memoria:
 ${calendarioProximosDias}
 
 INSTRUCCIONES IMPORTANTES:
 
 1. FECHAS:
-Los clientes hablan de forma coloquial. Interpreta expresiones como "hoy", "mañana", "este sábado", "el sábado", "el sábado que viene", "este finde", "el viernes" usando SOLO el calendario anterior.
+Los clientes hablan de forma coloquial. Interpreta expresiones como hoy, mañana, este sábado, el sábado, el sábado que viene, este finde o el viernes usando solo el calendario anterior.
 Siempre convierte internamente a formato YYYY-MM-DD.
-Antes de responder, comprueba que el día de la semana coincide con la fecha. Ejemplo: si dices "sábado", la fecha debe ser sábado.
+Antes de responder, comprueba que el día de la semana coincide con la fecha. Si dices sábado, la fecha debe ser sábado.
 
 2. PETICIONES ESPECIALES:
 Si el cliente menciona tronas, bebés, silla de ruedas, movilidad reducida, alergias, intolerancias, mesa especial, celebración o cumpleaños, anótalo en notas.
@@ -263,8 +298,8 @@ Si el cliente menciona tronas, bebés, silla de ruedas, movilidad reducida, aler
 - Recoge número de personas, día, hora y nombre.
 - Verifica que el día y hora estén dentro del horario de apertura.
 - Si hay peticiones especiales, recógelas.
-- Cuando tengas todo, muestra un resumen y pide confirmación al cliente.
-- Solo cuando el cliente confirme explícitamente con OK/sí/confirmo, emite la reserva.
+- Cuando tengas todo, confirma los datos de forma natural y pide confirmación al cliente.
+- Solo cuando el cliente confirme explícitamente con ok, sí, vale, correcto o confirmo, emite la reserva.
 
 4. FORMATO TÉCNICO DE RESERVA:
 Solo cuando el cliente haya confirmado, añade al final una línea así:
@@ -272,9 +307,19 @@ RESERVA_LISTA|nombre|YYYY-MM-DD|HH:MM|numPersonas|notas_especiales
 
 Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en una línea separada.
 
-5. Al confirmar, no digas que la reserva está "confirmada" definitivamente. Di que queda registrada y pendiente de confirmación final si procede.
-6. Sé breve, amable y responde siempre en español.
-7. Si preguntan por el menú, explica que son hamburguesas artesanas y que pueden ver la carta en silbis.es`;
+5. Estilo de respuesta:
+- Habla de forma natural, cercana y profesional.
+- No uses asteriscos para resaltar palabras, horas, fechas o teléfonos.
+- No suenes como un sistema automático.
+- Evita formatos rígidos tipo lista si no hacen falta.
+- Puedes usar algún emoji puntual, pero muy pocos.
+- Responde siempre en español.
+
+Ejemplo de tono:
+Perfecto, te apunto para el sábado 6 de junio a las 21:00, para 3 personas, a nombre de Laura. Si está todo bien, te la dejo registrada.
+
+6. Al confirmar, no digas que la reserva está confirmada definitivamente. Di que queda registrada y pendiente de confirmación final si procede.
+7. Si preguntan por el menú, explica que son hamburguesas artesanas y que pueden ver la carta en silbis.es.`;
 
   const messages = (historial || []).map(m => ({
     role: m.origen === 'bot' ? 'assistant' : 'user',
@@ -294,10 +339,9 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
   let reservaProcesada = null;
 
   if (respuesta.includes('RESERVA_LISTA|')) {
-    reservaProcesada = await crearReservaPendiente(respuesta, nombre, telefono);
+    reservaProcesada = await crearReservaPendiente(respuesta, nombre, telefono, config, horarios);
   }
 
-  // Guardamos en el panel solo la respuesta visible, nunca el marcador RESERVA_LISTA.
   if (respuestaLimpia) {
     await sb
       .from('mensajes')
@@ -308,14 +352,15 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
       });
   }
 
-  // Si no había mesa, crearReservaPendiente ya envió un mensaje operativo al cliente.
   if (reservaProcesada?.handledWithoutSendingCleanMessage) return;
 
   await enviarWhatsApp(telefono, respuestaLimpia || 'Perfecto, he tomado nota.');
 }
 
-// ── CREAR RESERVA PENDIENTE ──
-async function crearReservaPendiente(texto, nombre, telefono) {
+// ─────────────────────────────────────────────────────────────
+// CREAR RESERVA PENDIENTE
+// ─────────────────────────────────────────────────────────────
+async function crearReservaPendiente(texto, nombre, telefono, config, horarios) {
   try {
     const match = texto.match(/RESERVA_LISTA\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|?(.*)?/);
     if (!match) return { ok: false };
@@ -336,32 +381,58 @@ async function crearReservaPendiente(texto, nombre, telefono) {
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
 
+    if (!estaDentroDeHorario(horarios, fecha, hora)) {
+      const msgFueraHorario = `Lo siento, ese día u hora no aparece dentro del horario de reservas de Silbis. Dime otra hora o, si lo prefieres, llámanos al 661 656 648 y lo vemos contigo.`;
+      await enviarWhatsApp(telefono, msgFueraHorario);
+      return { ok: false, handledWithoutSendingCleanMessage: true };
+    }
+
     const { data: mesas } = await sb
       .from('mesas')
       .select('*')
       .order('capacidad');
 
-    const { data: reservasActivas } = await sb
+    const mesasOperativas = (mesas || []).filter(m => m.estado !== 'bloqueada');
+
+    const { data: reservasActivasDia } = await sb
       .from('reservas')
       .select('*')
       .eq('fecha', fecha)
       .in('estado', ['pendiente', 'confirmada']);
 
+    const duracionReserva = getReservaDuration(config);
+    const reservasSolapadas = getReservasSolapadas(reservasActivasDia, hora, duracionReserva);
+
+    const capacidadTotal = calcularCapacidadTotal(mesasOperativas);
+    const personasYaReservadas = reservasSolapadas.reduce((total, r) => {
+      return total + (parseInt(r.num_personas, 10) || 0);
+    }, 0);
+
+    const capacidadDisponible = capacidadTotal - personasYaReservadas;
+
+    console.log(`Capacidad ${fecha} ${hora}: total ${capacidadTotal}, ocupada ${personasYaReservadas}, disponible ${capacidadDisponible}`);
+
+    if (capacidadDisponible < numPersonas) {
+      const msgLleno = `Lo siento, para ese día y hora ya tenemos el restaurante completo.
+
+Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemos si hay alguna opción manual.`;
+
+      await enviarWhatsApp(telefono, msgLleno);
+      return { ok: false, handledWithoutSendingCleanMessage: true };
+    }
+
     const mesasOcupadas = new Set();
 
-    (reservasActivas || []).forEach(r => {
+    reservasSolapadas.forEach(r => {
       getMesaNumbersFromReserva(r).forEach(num => mesasOcupadas.add(String(num)));
     });
 
-    const mesasLibres = (mesas || [])
-      .filter(m => m.estado !== 'bloqueada')
-      .filter(m => !mesasOcupadas.has(String(m.numero)));
-
+    const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
     const mesaExacta = mesasLibres.find(m => m.capacidad >= numPersonas);
 
     let mesaAsignada = null;
     let mesasAgrupadas = [];
-    let notaFinal = notas?.trim() || '';
+    let notaFinal = limpiarNotasTecnicas(notas?.trim() || '');
 
     if (mesaExacta) {
       mesaAsignada = mesaExacta;
@@ -371,7 +442,7 @@ async function crearReservaPendiente(texto, nombre, telefono) {
 
       for (const m of mesasLibres) {
         candidatas.push(m);
-        capacidadAcumulada += m.capacidad;
+        capacidadAcumulada += parseInt(m.capacidad, 10) || 0;
 
         if (capacidadAcumulada >= numPersonas) break;
       }
@@ -383,19 +454,21 @@ async function crearReservaPendiente(texto, nombre, telefono) {
         const nums = candidatas.map(m => m.numero).join(' + ');
         notaFinal = (notaFinal ? notaFinal + ' | ' : '') + `Mesas agrupadas: ${nums}`;
 
-        console.log(`🔗 Mesas agrupadas: ${nums} para ${numPersonas} personas`);
+        console.log(`Mesas agrupadas: ${nums} para ${numPersonas} personas`);
       }
     }
 
     if (!mesaAsignada) {
       const msgSinMesa = mesasLibres.length === 0
-        ? `Lo siento 😔, no tenemos mesas disponibles para ese día. Llámanos al *661 656 648* y te buscamos la mejor opción. ¡Disculpa las molestias!`
-        : `Para una reserva de *${numPersonas} personas* necesitamos confirmarte disponibilidad manualmente. Por favor llámanos al *661 656 648* o escríbenos y te atendemos enseguida 🙏`;
+        ? `Lo siento, no tenemos mesas disponibles para ese día y hora. Llámanos al 661 656 648 y te buscamos la mejor opción.`
+        : `Para una reserva de ${numPersonas} personas necesitamos confirmarte disponibilidad manualmente. Por favor llámanos al 661 656 648 o escríbenos y te atendemos enseguida.`;
 
       await enviarWhatsApp(telefono, msgSinMesa);
-
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
+
+    const mesasReserva = mesasAgrupadas.length ? mesasAgrupadas : [mesaAsignada];
+    const notaFinalConMesas = notaFinal || null;
 
     const { data: reserva, error } = await sb
       .from('reservas')
@@ -408,7 +481,7 @@ async function crearReservaPendiente(texto, nombre, telefono) {
         mesa_numero: mesaAsignada.numero,
         estado: 'pendiente',
         canal: 'whatsapp',
-        notas: notaFinal || null
+        notas: notaFinalConMesas
       })
       .select()
       .single();
@@ -424,10 +497,8 @@ async function crearReservaPendiente(texto, nombre, telefono) {
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
 
-    // Importante: no marcamos la mesa como reservada globalmente.
-    // La disponibilidad se calcula por fecha y reservas activas.
     console.log(
-      `📋 Reserva pendiente: ${clienteNombre} — ${fecha} ${hora} — mesa(s): ${[mesaAsignada, ...mesasAgrupadas.filter(m => m.id !== mesaAsignada.id)].map(m => m.numero).join('+')}`
+      `Reserva pendiente: ${clienteNombre} — ${fecha} ${hora} — mesa(s): ${mesasReserva.map(m => m.numero).join('+')}`
     );
 
     await programarConfirmacion(reserva, telefono);
@@ -439,6 +510,9 @@ async function crearReservaPendiente(texto, nombre, telefono) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// CONFIRMACIONES
+// ─────────────────────────────────────────────────────────────
 async function programarConfirmacion(reserva, telefono) {
   const baseUrl = getPublicBaseUrl();
   const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
@@ -467,7 +541,7 @@ async function programarConfirmacion(reserva, telefono) {
       })
       .select();
 
-    console.log(`📅 Confirmación programada para el ${reserva.fecha}`);
+    console.log(`Confirmación programada para el ${reserva.fecha}`);
   }
 }
 
@@ -475,23 +549,20 @@ async function enviarMensajeConfirmacion(telefono, reserva, link, fechaLegible) 
   const baseUrl = getPublicBaseUrl();
   const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
 
-  const msg = `¡Hola ${reserva.cliente_nombre}! 👋
+  const msg = `Hola ${reserva.cliente_nombre}, te escribimos para recordarte tu reserva en Silbis el ${fechaLegible} a las ${reserva.hora.slice(0, 5)} para ${reserva.num_personas} personas.
 
-Te recordamos tu reserva en *Silbis* para *${fechaLegible}* a las *${reserva.hora.slice(0,5)}h* (${reserva.num_personas} personas).
-
-✅ Confirmar asistencia:
+Si vas a venir, puedes confirmarlo aquí:
 ${link}
 
-❌ Cancelar reserva:
+Si finalmente no puedes venir, puedes cancelar aquí:
 ${linkCancelar}
 
-_Cualquier duda llámanos al 661 656 648_ 🍔`;
+Si te resulta más cómodo, también puedes llamarnos al 661 656 648.`;
 
   await enviarWhatsApp(telefono, msg);
-  console.log(`📤 Confirmación enviada a ${telefono}`);
+  console.log(`Confirmación enviada a ${telefono}`);
 }
 
-// ── CRON: ENVIAR CONFIRMACIONES DEL DÍA ──
 async function procesarConfirmacionesDia() {
   const hoy = getMadridTodayISO();
 
@@ -520,7 +591,9 @@ async function procesarConfirmacionesDia() {
 
 setInterval(procesarConfirmacionesDia, 60 * 60 * 1000);
 
-// ── ENVIAR WHATSAPP ──
+// ─────────────────────────────────────────────────────────────
+// ENVIAR WHATSAPP
+// ─────────────────────────────────────────────────────────────
 async function enviarWhatsApp(telefono, mensaje) {
   try {
     await axios.post(
@@ -539,13 +612,15 @@ async function enviarWhatsApp(telefono, mensaje) {
       }
     );
 
-    console.log(`📤 Enviado a ${telefono}`);
+    console.log(`Enviado a ${telefono}`);
   } catch (err) {
     console.error('Error WhatsApp:', err.response?.data || err.message);
   }
 }
 
-// ── HELPERS ──
+// ─────────────────────────────────────────────────────────────
+// HELPERS GENERALES
+// ─────────────────────────────────────────────────────────────
 function getPublicBaseUrl() {
   return process.env.BASE_URL || 'https://earnest-illumination-production-dd04.up.railway.app';
 }
@@ -568,7 +643,7 @@ function formatMadridISO(date) {
 }
 
 function isoToUTCDate(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
+  const [y, m, d] = String(iso || '').split('-').map(Number);
 
   if (!y || !m || !d) return null;
 
@@ -582,7 +657,7 @@ function addDaysISO(iso, days) {
 
   d.setUTCDate(d.getUTCDate() + days);
 
-  return d.toISOString().slice(0,10);
+  return d.toISOString().slice(0, 10);
 }
 
 function weekdayNameFromISO(iso) {
@@ -612,6 +687,14 @@ function cleanTechnicalMarkers(text) {
   return String(text || '')
     .replace(/RESERVA_LISTA\|[^\n\r]*/g, '')
     .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function limpiarNotasTecnicas(notas) {
+  return String(notas || '')
+    .replace(/\s*\|?\s*link_confirm:[^\s|]*/gi, '')
+    .replace(/\s+\|\s+/g, ' | ')
+    .replace(/^\|\s*|\s*\|$/g, '')
     .trim();
 }
 
@@ -649,7 +732,7 @@ function isValidISODate(iso) {
 
   const d = isoToUTCDate(iso);
 
-  return !!d && d.toISOString().slice(0,10) === iso;
+  return !!d && d.toISOString().slice(0, 10) === iso;
 }
 
 function normalizarFechaReserva(fechaRaw, textoCompleto) {
@@ -679,10 +762,10 @@ function normalizarFechaReserva(fechaRaw, textoCompleto) {
   }
 
   if (candidates.length) {
-    candidates.sort((a,b) => a.score - b.score);
+    candidates.sort((a, b) => a.score - b.score);
 
     console.log(
-      `🗓️ Fecha corregida por coherencia: ${fecha} (${actualDay}) → ${candidates[0].candidate} (${hint.dayName})`
+      `Fecha corregida por coherencia: ${fecha} (${actualDay}) → ${candidates[0].candidate} (${hint.dayName})`
     );
 
     return candidates[0].candidate;
@@ -702,7 +785,69 @@ function normalizarHoraReserva(horaRaw) {
 
   if (h < 0 || h > 23 || m < 0 || m > 59) return null;
 
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function timeToMinutes(hora) {
+  const match = String(hora || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+
+  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+}
+
+function intervalsOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
+}
+
+function getReservaDuration(config) {
+  const dur = parseInt(config?.duracion_reserva, 10);
+  return Number.isFinite(dur) && dur > 0 ? dur : 90;
+}
+
+function calcularCapacidadTotal(mesas) {
+  return (mesas || []).reduce((total, mesa) => {
+    return total + (parseInt(mesa.capacidad, 10) || 0);
+  }, 0);
+}
+
+function getReservasSolapadas(reservas, hora, duracionMinutos) {
+  const inicioNueva = timeToMinutes(hora);
+  if (inicioNueva === null) return [];
+
+  const finNueva = inicioNueva + duracionMinutos;
+
+  return (reservas || []).filter(r => {
+    const inicioExistente = timeToMinutes(r.hora);
+    if (inicioExistente === null) return false;
+
+    const finExistente = inicioExistente + duracionMinutos;
+
+    return intervalsOverlap(inicioNueva, finNueva, inicioExistente, finExistente);
+  });
+}
+
+function estaDentroDeHorario(horarios, fecha, hora) {
+  if (!horarios || !horarios.length) return true;
+
+  const d = isoToUTCDate(fecha);
+  if (!d) return false;
+
+  const jsDay = d.getUTCDay();
+  const diaHorario = jsDay === 0 ? 6 : jsDay - 1;
+  const horaMin = timeToMinutes(hora);
+
+  if (horaMin === null) return false;
+
+  return horarios.some(h => {
+    if (parseInt(h.dia, 10) !== diaHorario) return false;
+
+    const inicio = timeToMinutes(h.hora_inicio);
+    const fin = timeToMinutes(h.hora_fin);
+
+    if (inicio === null || fin === null) return false;
+
+    return horaMin >= inicio && horaMin <= fin;
+  });
 }
 
 function getMesaNumbersFromReserva(r) {
@@ -740,4 +885,4 @@ function formatFechaLegible(fecha) {
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Silbis chatbot en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Silbis chatbot en puerto ${PORT}`));
