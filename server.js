@@ -263,6 +263,212 @@ app.post('/reservas/:reservaId/avisos', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+// ─────────────────────────────────────────────────────────────
+// CREAR RESERVA MANUAL DESDE PANEL
+// ─────────────────────────────────────────────────────────────
+app.post('/reservas/manual', async (req, res) => {
+  const {
+    cliente_nombre,
+    cliente_telefono,
+    fecha,
+    hora,
+    num_personas,
+    estado = 'confirmada',
+    canal = 'telefono',
+    mesa_numero = null,
+    notas = null
+  } = req.body || {};
+
+  try {
+    if (!cliente_nombre || !cliente_telefono || !fecha || !hora || !num_personas) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Rellena nombre, teléfono, fecha, hora y número de personas.'
+      });
+    }
+
+    if (!isValidISODate(fecha)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'La fecha no tiene un formato válido.'
+      });
+    }
+
+    const horaNormalizada = normalizarHoraReserva(hora);
+    const personas = parseInt(num_personas, 10);
+
+    if (!horaNormalizada || !Number.isFinite(personas) || personas <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'La hora o el número de personas no son válidos.'
+      });
+    }
+
+    const { data: config } = await sb
+      .from('config')
+      .select('*')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single();
+
+    const { data: horarios } = await sb
+      .from('horarios')
+      .select('*')
+      .eq('activo', true)
+      .order('dia');
+
+    if (!estaDentroDeHorario(horarios, fecha, horaNormalizada)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Ese día u hora no está dentro del horario de reservas.'
+      });
+    }
+
+    const { data: mesas } = await sb
+      .from('mesas')
+      .select('*')
+      .order('capacidad');
+
+    const mesasOperativas = (mesas || []).filter(m => m.estado !== 'bloqueada');
+
+    const { data: reservasActivasDia } = await sb
+      .from('reservas')
+      .select('*')
+      .eq('fecha', fecha)
+      .in('estado', ['pendiente', 'confirmada']);
+
+    const duracionReserva = getReservaDuration(config);
+    const reservasSolapadas = getReservasSolapadas(
+      reservasActivasDia,
+      horaNormalizada,
+      duracionReserva
+    );
+
+    const capacidadTotal = calcularCapacidadTotal(mesasOperativas);
+    const personasYaReservadas = reservasSolapadas.reduce((total, r) => {
+      return total + (parseInt(r.num_personas, 10) || 0);
+    }, 0);
+
+    const capacidadDisponible = capacidadTotal - personasYaReservadas;
+
+    if (capacidadDisponible < personas) {
+      return res.status(409).json({
+        ok: false,
+        error: `No hay capacidad suficiente para esa hora. Quedan ${Math.max(capacidadDisponible, 0)} plazas disponibles.`
+      });
+    }
+
+    const mesasOcupadas = new Set();
+
+    reservasSolapadas.forEach(r => {
+      getMesaNumbersFromReserva(r).forEach(num => mesasOcupadas.add(String(num)));
+    });
+
+    const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
+
+    let mesaAsignada = null;
+    let mesasAgrupadas = [];
+    let notaFinal = limpiarNotasTecnicas(notas || '');
+
+    if (mesa_numero) {
+      const mesaManual = mesasOperativas.find(m => String(m.numero) === String(mesa_numero));
+
+      if (!mesaManual) {
+        return res.status(400).json({
+          ok: false,
+          error: 'La mesa seleccionada no existe o está bloqueada.'
+        });
+      }
+
+      if (mesasOcupadas.has(String(mesaManual.numero))) {
+        return res.status(409).json({
+          ok: false,
+          error: `La mesa ${mesaManual.numero} ya está ocupada en esa franja horaria.`
+        });
+      }
+
+      if ((parseInt(mesaManual.capacidad, 10) || 0) < personas) {
+        return res.status(409).json({
+          ok: false,
+          error: `La mesa ${mesaManual.numero} no tiene capacidad suficiente para ${personas} personas.`
+        });
+      }
+
+      mesaAsignada = mesaManual;
+    } else {
+      const mesaExacta = mesasLibres.find(m => (parseInt(m.capacidad, 10) || 0) >= personas);
+
+      if (mesaExacta) {
+        mesaAsignada = mesaExacta;
+      } else if (mesasLibres.length >= 2) {
+        let capacidadAcumulada = 0;
+        const candidatas = [];
+
+        for (const m of mesasLibres) {
+          candidatas.push(m);
+          capacidadAcumulada += parseInt(m.capacidad, 10) || 0;
+
+          if (capacidadAcumulada >= personas) break;
+        }
+
+        if (capacidadAcumulada >= personas) {
+          mesasAgrupadas = candidatas;
+          mesaAsignada = candidatas[0];
+
+          const nums = candidatas.map(m => m.numero).join(' + ');
+          notaFinal = (notaFinal ? notaFinal + ' | ' : '') + `Mesas agrupadas: ${nums}`;
+        }
+      }
+    }
+
+    if (!mesaAsignada) {
+      return res.status(409).json({
+        ok: false,
+        error: 'No hay mesas disponibles para esa reserva en la franja seleccionada.'
+      });
+    }
+
+    const { data: reserva, error } = await sb
+      .from('reservas')
+      .insert({
+        cliente_nombre: cliente_nombre.trim(),
+        cliente_telefono: cliente_telefono.trim(),
+        fecha,
+        hora: horaNormalizada,
+        num_personas: personas,
+        mesa_numero: mesaAsignada.numero,
+        estado,
+        canal,
+        notas: notaFinal || null
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creando reserva manual:', error.message);
+
+      return res.status(500).json({
+        ok: false,
+        error: 'No se pudo guardar la reserva.'
+      });
+    }
+
+    console.log(
+      `Reserva manual creada: ${cliente_nombre} — ${fecha} ${horaNormalizada} — mesa ${mesaAsignada.numero}`
+    );
+
+    return res.json({
+      ok: true,
+      reserva
+    });
+  } catch (err) {
+    console.error('Error reserva manual:', err.message);
+
+    return res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────
 // WEBHOOK MENSAJES WHATSAPP
