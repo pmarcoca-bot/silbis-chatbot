@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -11,14 +12,53 @@ const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_KEY });
 
 const TIMEZONE = 'Europe/Madrid';
-const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-const DIAS_SEMANA_NORMALIZADOS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
-const DIAS_HORARIOS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
-// ─────────────────────────────────────────────────────────────
+const DIAS_SEMANA = [
+  'domingo',
+  'lunes',
+  'martes',
+  'miércoles',
+  'jueves',
+  'viernes',
+  'sábado'
+];
+
+const DIAS_SEMANA_NORMALIZADOS = [
+  'domingo',
+  'lunes',
+  'martes',
+  'miercoles',
+  'jueves',
+  'viernes',
+  'sabado'
+];
+
+const DIAS_HORARIOS = [
+  'lunes',
+  'martes',
+  'miércoles',
+  'jueves',
+  'viernes',
+  'sábado',
+  'domingo'
+];
+
+const MESES = [
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre'
+];
+
 // HEALTH CHECK
-// ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({
     status: 'Silbis chatbot activo',
@@ -26,9 +66,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────
 // WEBHOOK VERIFICACIÓN META
-// ─────────────────────────────────────────────────────────────
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -42,9 +80,7 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // CONFIRMAR RESERVA DESDE LINK
-// ─────────────────────────────────────────────────────────────
 app.get('/confirmar/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -55,7 +91,9 @@ app.get('/confirmar/:reservaId', async (req, res) => {
       .eq('id', reservaId)
       .single();
 
-    if (!reserva) return res.status(404).send('Reserva no encontrada');
+    if (!reserva) {
+      return res.status(404).send('Reserva no encontrada');
+    }
 
     if (reserva.estado === 'cancelada') {
       return res.send(`
@@ -97,7 +135,7 @@ app.get('/confirmar/:reservaId', async (req, res) => {
             <h1 style="color:#bf3228;margin:0 0 12px">Silbis</h1>
             <h2 style="margin:0 0 16px">Reserva confirmada</h2>
             <p>Tu mesa está reservada para el <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0, 5)}</strong>.</p>
-            <p style="color:#a1a1a6;margin-top:20px">C/ Carnicerías, 2 — Tudela · 661 656 648</p>
+            <p style="color:#a1a1a6;margin-top:20px">C/ Carnicerías, 2, Tudela · 661 656 648</p>
           </div>
         </body>
       </html>
@@ -108,9 +146,7 @@ app.get('/confirmar/:reservaId', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // CANCELAR RESERVA DESDE LINK
-// ─────────────────────────────────────────────────────────────
 app.get('/cancelar/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -121,7 +157,9 @@ app.get('/cancelar/:reservaId', async (req, res) => {
       .eq('id', reservaId)
       .single();
 
-    if (!reserva) return res.status(404).send('Reserva no encontrada');
+    if (!reserva) {
+      return res.status(404).send('Reserva no encontrada');
+    }
 
     if (reserva.estado === 'cancelada') {
       return res.send(`
@@ -173,9 +211,7 @@ app.get('/cancelar/:reservaId', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // REENVIAR CONFIRMACIÓN DESDE PANEL, COMPATIBILIDAD
-// ─────────────────────────────────────────────────────────────
 app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -186,7 +222,9 @@ app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
       .eq('id', reservaId)
       .single();
 
-    if (!reserva) return res.status(404).json({ error: 'No encontrada' });
+    if (!reserva) {
+      return res.status(404).json({ error: 'No encontrada' });
+    }
 
     const mensaje = construirMensajePendienteConfirmacion(reserva);
 
@@ -207,11 +245,10 @@ app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // ENVIAR AVISO MANUAL DESDE PANEL Y GUARDAR HISTORIAL
-// ─────────────────────────────────────────────────────────────
 app.post('/reservas/:reservaId/avisos', async (req, res) => {
   const { reservaId } = req.params;
+
   const {
     tipo = 'recordatorio',
     mensaje_personalizado = null,
@@ -226,11 +263,17 @@ app.post('/reservas/:reservaId/avisos', async (req, res) => {
       .single();
 
     if (error || !reserva) {
-      return res.status(404).json({ ok: false, error: 'Reserva no encontrada' });
+      return res.status(404).json({
+        ok: false,
+        error: 'Reserva no encontrada'
+      });
     }
 
     if (!reserva.cliente_telefono) {
-      return res.status(400).json({ ok: false, error: 'La reserva no tiene teléfono asociado' });
+      return res.status(400).json({
+        ok: false,
+        error: 'La reserva no tiene teléfono asociado'
+      });
     }
 
     let mensaje;
@@ -260,12 +303,15 @@ app.post('/reservas/:reservaId/avisos', async (req, res) => {
     });
   } catch (err) {
     console.error('Error enviando aviso:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
+
+    return res.status(500).json({
+      ok: false,
+      error: err.message
+    });
   }
 });
-// ─────────────────────────────────────────────────────────────
+
 // CREAR RESERVA MANUAL DESDE PANEL
-// ─────────────────────────────────────────────────────────────
 app.post('/reservas/manual', async (req, res) => {
   const {
     cliente_nombre,
@@ -285,238 +331,6 @@ app.post('/reservas/manual', async (req, res) => {
         ok: false,
         error: 'Rellena nombre, teléfono, fecha, hora y número de personas.'
       });
-      // ─────────────────────────────────────────────────────────────
-// EDITAR RESERVA DESDE PANEL
-// ─────────────────────────────────────────────────────────────
-app.put('/reservas/:reservaId', async (req, res) => {
-  const { reservaId } = req.params;
-
-  const {
-    cliente_nombre,
-    cliente_telefono,
-    fecha,
-    hora,
-    num_personas,
-    estado = 'pendiente',
-    canal = 'whatsapp',
-    mesa_numero = null,
-    notas = null
-  } = req.body || {};
-
-  try {
-    const { data: reservaActual } = await sb
-      .from('reservas')
-      .select('*')
-      .eq('id', reservaId)
-      .single();
-
-    if (!reservaActual) {
-      return res.status(404).json({
-        ok: false,
-        error: 'Reserva no encontrada.'
-      });
-    }
-
-    if (!cliente_nombre || !fecha || !hora || !num_personas) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Rellena nombre, fecha, hora y número de personas.'
-      });
-    }
-
-    if (!isValidISODate(fecha)) {
-      return res.status(400).json({
-        ok: false,
-        error: 'La fecha no tiene un formato válido.'
-      });
-    }
-
-    const horaNormalizada = normalizarHoraReserva(hora);
-    const personas = parseInt(num_personas, 10);
-
-    if (!horaNormalizada || !Number.isFinite(personas) || personas <= 0) {
-      return res.status(400).json({
-        ok: false,
-        error: 'La hora o el número de personas no son válidos.'
-      });
-    }
-
-    const estadoNormalizado = String(estado || 'pendiente').trim();
-    const esReservaActiva = ['pendiente', 'confirmada'].includes(estadoNormalizado);
-
-    let mesaAsignadaNumero = mesa_numero || reservaActual.mesa_numero || null;
-    let notaFinal = limpiarNotasTecnicas(notas || '');
-
-    notaFinal = notaFinal
-      .replace(/\s*\|?\s*Mesas agrupadas:\s*[0-9+,\s]+/gi, '')
-      .replace(/\s+\|\s+/g, ' | ')
-      .replace(/^\|\s*|\s*\|$/g, '')
-      .trim();
-
-    if (esReservaActiva) {
-      const { data: config } = await sb
-        .from('config')
-        .select('*')
-        .eq('id', '00000000-0000-0000-0000-000000000001')
-        .single();
-
-      const { data: horarios } = await sb
-        .from('horarios')
-        .select('*')
-        .eq('activo', true)
-        .order('dia');
-
-      if (!estaDentroDeHorario(horarios, fecha, horaNormalizada)) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Ese día u hora no está dentro del horario de reservas.'
-        });
-      }
-
-      const { data: mesas } = await sb
-        .from('mesas')
-        .select('*')
-        .order('capacidad');
-
-      const mesasOperativas = (mesas || []).filter(m => m.estado !== 'bloqueada');
-
-      const { data: reservasActivasDia } = await sb
-        .from('reservas')
-        .select('*')
-        .eq('fecha', fecha)
-        .in('estado', ['pendiente', 'confirmada'])
-        .neq('id', reservaId);
-
-      const duracionReserva = getReservaDuration(config);
-      const reservasSolapadas = getReservasSolapadas(
-        reservasActivasDia,
-        horaNormalizada,
-        duracionReserva
-      );
-
-      const capacidadTotal = calcularCapacidadTotal(mesasOperativas);
-      const personasYaReservadas = reservasSolapadas.reduce((total, r) => {
-        return total + (parseInt(r.num_personas, 10) || 0);
-      }, 0);
-
-      const capacidadDisponible = capacidadTotal - personasYaReservadas;
-
-      if (capacidadDisponible < personas) {
-        return res.status(409).json({
-          ok: false,
-          error: `No hay capacidad suficiente para esa hora. Quedan ${Math.max(capacidadDisponible, 0)} plazas disponibles.`
-        });
-      }
-
-      const mesasOcupadas = new Set();
-
-      reservasSolapadas.forEach(r => {
-        getMesaNumbersFromReserva(r).forEach(num => mesasOcupadas.add(String(num)));
-      });
-
-      const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
-
-      if (mesa_numero) {
-        const mesaManual = mesasOperativas.find(m => String(m.numero) === String(mesa_numero));
-
-        if (!mesaManual) {
-          return res.status(400).json({
-            ok: false,
-            error: 'La mesa seleccionada no existe o está bloqueada.'
-          });
-        }
-
-        if (mesasOcupadas.has(String(mesaManual.numero))) {
-          return res.status(409).json({
-            ok: false,
-            error: `La mesa ${mesaManual.numero} ya está ocupada en esa franja horaria.`
-          });
-        }
-
-        if ((parseInt(mesaManual.capacidad, 10) || 0) < personas) {
-          return res.status(409).json({
-            ok: false,
-            error: `La mesa ${mesaManual.numero} no tiene capacidad suficiente para ${personas} personas.`
-          });
-        }
-
-        mesaAsignadaNumero = mesaManual.numero;
-      } else {
-        const mesaExacta = mesasLibres.find(m => (parseInt(m.capacidad, 10) || 0) >= personas);
-
-        if (mesaExacta) {
-          mesaAsignadaNumero = mesaExacta.numero;
-        } else if (mesasLibres.length >= 2) {
-          let capacidadAcumulada = 0;
-          const candidatas = [];
-
-          for (const m of mesasLibres) {
-            candidatas.push(m);
-            capacidadAcumulada += parseInt(m.capacidad, 10) || 0;
-
-            if (capacidadAcumulada >= personas) break;
-          }
-
-          if (capacidadAcumulada >= personas) {
-            mesaAsignadaNumero = candidatas[0].numero;
-
-            const nums = candidatas.map(m => m.numero).join(' + ');
-            notaFinal = (notaFinal ? notaFinal + ' | ' : '') + `Mesas agrupadas: ${nums}`;
-          }
-        }
-
-        if (!mesaAsignadaNumero) {
-          return res.status(409).json({
-            ok: false,
-            error: 'No hay mesas disponibles para esa reserva en la franja seleccionada.'
-          });
-        }
-      }
-    }
-
-    const { data: reserva, error } = await sb
-      .from('reservas')
-      .update({
-        cliente_nombre: cliente_nombre.trim(),
-        cliente_telefono: cliente_telefono ? cliente_telefono.trim() : null,
-        fecha,
-        hora: horaNormalizada,
-        num_personas: personas,
-        mesa_numero: mesaAsignadaNumero,
-        estado: estadoNormalizado,
-        canal,
-        notas: notaFinal || null
-      })
-      .eq('id', reservaId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error editando reserva:', error.message);
-
-      return res.status(500).json({
-        ok: false,
-        error: 'No se pudo actualizar la reserva.'
-      });
-    }
-
-    console.log(
-      `Reserva editada: ${cliente_nombre} — ${fecha} ${horaNormalizada} — estado ${estadoNormalizado}`
-    );
-
-    return res.json({
-      ok: true,
-      reserva
-    });
-  } catch (err) {
-    console.error('Error edición reserva:', err.message);
-
-    return res.status(500).json({
-      ok: false,
-      error: err.message
-    });
-  }
-});
     }
 
     if (!isValidISODate(fecha)) {
@@ -555,107 +369,19 @@ app.put('/reservas/:reservaId', async (req, res) => {
       });
     }
 
-    const { data: mesas } = await sb
-      .from('mesas')
-      .select('*')
-      .order('capacidad');
-
-    const mesasOperativas = (mesas || []).filter(m => m.estado !== 'bloqueada');
-
-    const { data: reservasActivasDia } = await sb
-      .from('reservas')
-      .select('*')
-      .eq('fecha', fecha)
-      .in('estado', ['pendiente', 'confirmada']);
-
-    const duracionReserva = getReservaDuration(config);
-    const reservasSolapadas = getReservasSolapadas(
-      reservasActivasDia,
-      horaNormalizada,
-      duracionReserva
-    );
-
-    const capacidadTotal = calcularCapacidadTotal(mesasOperativas);
-    const personasYaReservadas = reservasSolapadas.reduce((total, r) => {
-      return total + (parseInt(r.num_personas, 10) || 0);
-    }, 0);
-
-    const capacidadDisponible = capacidadTotal - personasYaReservadas;
-
-    if (capacidadDisponible < personas) {
-      return res.status(409).json({
-        ok: false,
-        error: `No hay capacidad suficiente para esa hora. Quedan ${Math.max(capacidadDisponible, 0)} plazas disponibles.`
-      });
-    }
-
-    const mesasOcupadas = new Set();
-
-    reservasSolapadas.forEach(r => {
-      getMesaNumbersFromReserva(r).forEach(num => mesasOcupadas.add(String(num)));
+    const resultado = await calcularAsignacionMesa({
+      reservaIdExcluir: null,
+      fecha,
+      hora: horaNormalizada,
+      personas,
+      mesaNumeroSolicitada: mesa_numero,
+      notas
     });
 
-    const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
-
-    let mesaAsignada = null;
-    let mesasAgrupadas = [];
-    let notaFinal = limpiarNotasTecnicas(notas || '');
-
-    if (mesa_numero) {
-      const mesaManual = mesasOperativas.find(m => String(m.numero) === String(mesa_numero));
-
-      if (!mesaManual) {
-        return res.status(400).json({
-          ok: false,
-          error: 'La mesa seleccionada no existe o está bloqueada.'
-        });
-      }
-
-      if (mesasOcupadas.has(String(mesaManual.numero))) {
-        return res.status(409).json({
-          ok: false,
-          error: `La mesa ${mesaManual.numero} ya está ocupada en esa franja horaria.`
-        });
-      }
-
-      if ((parseInt(mesaManual.capacidad, 10) || 0) < personas) {
-        return res.status(409).json({
-          ok: false,
-          error: `La mesa ${mesaManual.numero} no tiene capacidad suficiente para ${personas} personas.`
-        });
-      }
-
-      mesaAsignada = mesaManual;
-    } else {
-      const mesaExacta = mesasLibres.find(m => (parseInt(m.capacidad, 10) || 0) >= personas);
-
-      if (mesaExacta) {
-        mesaAsignada = mesaExacta;
-      } else if (mesasLibres.length >= 2) {
-        let capacidadAcumulada = 0;
-        const candidatas = [];
-
-        for (const m of mesasLibres) {
-          candidatas.push(m);
-          capacidadAcumulada += parseInt(m.capacidad, 10) || 0;
-
-          if (capacidadAcumulada >= personas) break;
-        }
-
-        if (capacidadAcumulada >= personas) {
-          mesasAgrupadas = candidatas;
-          mesaAsignada = candidatas[0];
-
-          const nums = candidatas.map(m => m.numero).join(' + ');
-          notaFinal = (notaFinal ? notaFinal + ' | ' : '') + `Mesas agrupadas: ${nums}`;
-        }
-      }
-    }
-
-    if (!mesaAsignada) {
-      return res.status(409).json({
+    if (!resultado.ok) {
+      return res.status(resultado.status || 409).json({
         ok: false,
-        error: 'No hay mesas disponibles para esa reserva en la franja seleccionada.'
+        error: resultado.error
       });
     }
 
@@ -667,44 +393,189 @@ app.put('/reservas/:reservaId', async (req, res) => {
         fecha,
         hora: horaNormalizada,
         num_personas: personas,
-        mesa_numero: mesaAsignada.numero,
+        mesa_numero: resultado.mesa_numero,
         estado,
         canal,
-        notas: notaFinal || null
+        notas: resultado.notas || null
       })
       .select()
       .single();
 
     if (error) {
-      console.error('Error creando reserva manual:', error.message);
+      console.error('Error creando reserva manual:', error);
 
       return res.status(500).json({
         ok: false,
-        error: 'No se pudo guardar la reserva.'
+        error: error.message || 'No se pudo guardar la reserva.'
       });
     }
 
-    console.log(
-      `Reserva manual creada: ${cliente_nombre} — ${fecha} ${horaNormalizada} — mesa ${mesaAsignada.numero}`
-    );
+    console.log(`Reserva manual creada: ${cliente_nombre} — ${fecha} ${horaNormalizada} — mesa ${resultado.mesa_numero}`);
 
     return res.json({
       ok: true,
       reserva
     });
   } catch (err) {
-    console.error('Error reserva manual:', err.message);
+    console.error('Error reserva manual:', err);
 
     return res.status(500).json({
       ok: false,
-      error: err.message
+      error: err.message || 'Error inesperado creando reserva manual.'
     });
   }
 });
 
-// ─────────────────────────────────────────────────────────────
+// EDITAR RESERVA DESDE PANEL
+app.put('/reservas/:reservaId', async (req, res) => {
+  const { reservaId } = req.params;
+
+  const {
+    cliente_nombre,
+    cliente_telefono,
+    fecha,
+    hora,
+    num_personas,
+    estado = 'pendiente',
+    canal = 'whatsapp',
+    mesa_numero = null,
+    notas = null
+  } = req.body || {};
+
+  try {
+    const { data: reservaActual, error: reservaError } = await sb
+      .from('reservas')
+      .select('*')
+      .eq('id', reservaId)
+      .single();
+
+    if (reservaError || !reservaActual) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Reserva no encontrada.'
+      });
+    }
+
+    if (!cliente_nombre || !fecha || !hora || !num_personas) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Rellena nombre, fecha, hora y número de personas.'
+      });
+    }
+
+    if (!isValidISODate(fecha)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'La fecha no tiene un formato válido.'
+      });
+    }
+
+    const horaNormalizada = normalizarHoraReserva(hora);
+    const personas = parseInt(num_personas, 10);
+    const estadoNormalizado = String(estado || 'pendiente').trim();
+
+    if (!horaNormalizada || !Number.isFinite(personas) || personas <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'La hora o el número de personas no son válidos.'
+      });
+    }
+
+    let mesaAsignadaNumero = mesa_numero
+      ? parseInt(mesa_numero, 10)
+      : null;
+
+    let notaFinal = limpiarNotasTecnicas(notas || '');
+
+    notaFinal = notaFinal
+      .replace(/\s*\|?\s*Mesas agrupadas:\s*[0-9+,\s]+/gi, '')
+      .replace(/\s+\|\s+/g, ' | ')
+      .replace(/^\|\s*|\s*\|$/g, '')
+      .trim();
+
+    const reservaActiva = ['pendiente', 'confirmada'].includes(estadoNormalizado);
+
+    if (reservaActiva) {
+      const { data: horarios } = await sb
+        .from('horarios')
+        .select('*')
+        .eq('activo', true)
+        .order('dia');
+
+      if (!estaDentroDeHorario(horarios, fecha, horaNormalizada)) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Ese día u hora no está dentro del horario de reservas.'
+        });
+      }
+
+      const resultado = await calcularAsignacionMesa({
+        reservaIdExcluir: reservaId,
+        fecha,
+        hora: horaNormalizada,
+        personas,
+        mesaNumeroSolicitada: mesaAsignadaNumero,
+        notas: notaFinal
+      });
+
+      if (!resultado.ok) {
+        return res.status(resultado.status || 409).json({
+          ok: false,
+          error: resultado.error
+        });
+      }
+
+      mesaAsignadaNumero = resultado.mesa_numero;
+      notaFinal = resultado.notas || '';
+    } else {
+      mesaAsignadaNumero = mesaAsignadaNumero || reservaActual.mesa_numero || null;
+    }
+
+    const updatePayload = {
+      cliente_nombre: cliente_nombre.trim(),
+      cliente_telefono: cliente_telefono ? cliente_telefono.trim() : reservaActual.cliente_telefono,
+      fecha,
+      hora: horaNormalizada,
+      num_personas: personas,
+      mesa_numero: mesaAsignadaNumero,
+      estado: estadoNormalizado,
+      canal: canal || reservaActual.canal || 'manual',
+      notas: notaFinal || null
+    };
+
+    const { data: reserva, error: updateError } = await sb
+      .from('reservas')
+      .update(updatePayload)
+      .eq('id', reservaId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error editando reserva:', updateError);
+
+      return res.status(500).json({
+        ok: false,
+        error: updateError.message || 'No se pudo actualizar la reserva.'
+      });
+    }
+
+    console.log(`Reserva editada: ${cliente_nombre} — ${fecha} ${horaNormalizada} — estado ${estadoNormalizado}`);
+
+    return res.json({
+      ok: true,
+      reserva
+    });
+  } catch (err) {
+    console.error('Error edición reserva:', err);
+
+    return res.status(500).json({
+      ok: false,
+      error: err.message || 'Error inesperado editando la reserva.'
+    });
+  }
+});
+
 // WEBHOOK MENSAJES WHATSAPP
-// ─────────────────────────────────────────────────────────────
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 
@@ -713,7 +584,9 @@ app.post('/webhook', async (req, res) => {
     const value = entry?.changes?.[0]?.value;
     const message = value?.messages?.[0];
 
-    if (!message || message.type !== 'text') return;
+    if (!message || message.type !== 'text') {
+      return;
+    }
 
     const telefono = message.from;
     const texto = message.text.body;
@@ -727,9 +600,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────
 // PROCESAR MENSAJE
-// ─────────────────────────────────────────────────────────────
 async function procesarMensaje(telefono, nombre, texto) {
   let { data: conv } = await sb
     .from('conversaciones')
@@ -804,7 +675,7 @@ async function procesarMensaje(telefono, nombre, texto) {
 FECHA Y DÍA ACTUAL EN ESPAÑA: ${fechaHoy} (${diaActual})
 MAÑANA: ${manana} (${weekdayNameFromISO(manana)})
 HORARIOS DE APERTURA: ${horariosTexto}
-DIRECCIÓN: ${config?.direccion || 'C/ Carnicerías, 2 — Tudela'}
+DIRECCIÓN: ${config?.direccion || 'C/ Carnicerías, 2, Tudela'}
 TELÉFONO: ${config?.telefono || '661 656 648'}
 MÁXIMO PERSONAS POR RESERVA: ${config?.max_personas || 8}
 DURACIÓN ESTIMADA POR RESERVA: ${duracionReserva} minutos
@@ -817,7 +688,7 @@ INSTRUCCIONES IMPORTANTES:
 1. FECHAS:
 Los clientes hablan de forma coloquial. Interpreta expresiones como hoy, mañana, este sábado, el sábado, el sábado que viene, este finde o el viernes usando solo el calendario anterior.
 Siempre convierte internamente a formato YYYY-MM-DD.
-Antes de responder, comprueba que el día de la semana coincide con la fecha. Si dices sábado, la fecha debe ser sábado.
+Antes de responder, comprueba que el día de la semana coincide con la fecha.
 
 2. PETICIONES ESPECIALES:
 Si el cliente menciona tronas, bebés, silla de ruedas, movilidad reducida, alergias, intolerancias, mesa especial, celebración o cumpleaños, anótalo en notas.
@@ -842,9 +713,6 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
 - Evita formatos rígidos tipo lista si no hacen falta.
 - Puedes usar algún emoji puntual, pero muy pocos.
 - Responde siempre en español.
-
-Ejemplo de tono:
-Perfecto, te apunto para el sábado 6 de junio a las 21:00, para 3 personas, a nombre de Laura. Si está todo bien, te la dejo registrada.
 
 6. Al confirmar, no digas que la reserva está confirmada definitivamente. Di que queda registrada y pendiente de confirmación final si procede.
 7. Si preguntan por el menú, explica que son hamburguesas artesanas y que pueden ver la carta en silbis.es.`;
@@ -880,27 +748,29 @@ Perfecto, te apunto para el sábado 6 de junio a las 21:00, para 3 personas, a n
       });
   }
 
-  if (reservaProcesada?.handledWithoutSendingCleanMessage) return;
+  if (reservaProcesada?.handledWithoutSendingCleanMessage) {
+    return;
+  }
 
   await enviarWhatsApp(telefono, respuestaLimpia || 'Perfecto, he tomado nota.');
 }
 
-// ─────────────────────────────────────────────────────────────
-// CREAR RESERVA PENDIENTE
-// ─────────────────────────────────────────────────────────────
+// CREAR RESERVA PENDIENTE DESDE WHATSAPP
 async function crearReservaPendiente(texto, nombre, telefono, config, horarios) {
   try {
     const match = texto.match(/RESERVA_LISTA\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|?(.*)?/);
-    if (!match) return { ok: false };
+
+    if (!match) {
+      return { ok: false };
+    }
 
     const [, clienteNombre, fechaRaw, horaRaw, personasRaw, notas] = match;
+
     const numPersonas = parseInt(personasRaw, 10);
     const fecha = normalizarFechaReserva(fechaRaw, texto);
     const hora = normalizarHoraReserva(horaRaw);
 
     if (!fecha || !hora || !Number.isFinite(numPersonas) || numPersonas <= 0) {
-      console.error('Reserva técnica inválida:', { clienteNombre, fechaRaw, horaRaw, personasRaw });
-
       await enviarWhatsApp(
         telefono,
         'Perdona, he tenido un problema interpretando la fecha u hora. ¿Me confirmas de nuevo día y hora de la reserva?'
@@ -930,53 +800,164 @@ Así podemos confirmarte disponibilidad al momento y atenderte mejor.`;
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
 
-    const { data: mesas } = await sb
-      .from('mesas')
-      .select('*')
-      .order('capacidad');
+    const resultado = await calcularAsignacionMesa({
+      reservaIdExcluir: null,
+      fecha,
+      hora,
+      personas: numPersonas,
+      mesaNumeroSolicitada: null,
+      notas
+    });
 
-    const mesasOperativas = (mesas || []).filter(m => m.estado !== 'bloqueada');
-
-    const { data: reservasActivasDia } = await sb
-      .from('reservas')
-      .select('*')
-      .eq('fecha', fecha)
-      .in('estado', ['pendiente', 'confirmada']);
-
-    const duracionReserva = getReservaDuration(config);
-    const reservasSolapadas = getReservasSolapadas(reservasActivasDia, hora, duracionReserva);
-
-    const capacidadTotal = calcularCapacidadTotal(mesasOperativas);
-    const personasYaReservadas = reservasSolapadas.reduce((total, r) => {
-      return total + (parseInt(r.num_personas, 10) || 0);
-    }, 0);
-
-    const capacidadDisponible = capacidadTotal - personasYaReservadas;
-
-    console.log(`Capacidad ${fecha} ${hora}: total ${capacidadTotal}, ocupada ${personasYaReservadas}, disponible ${capacidadDisponible}`);
-
-    if (capacidadDisponible < numPersonas) {
-      const msgLleno = `Lo siento, para ese día y hora ya tenemos el restaurante completo.
-
-Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemos si hay alguna opción manual.`;
-
-      await enviarWhatsApp(telefono, msgLleno);
+    if (!resultado.ok) {
+      await enviarWhatsApp(telefono, resultado.mensajeCliente || resultado.error);
 
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
 
-    const mesasOcupadas = new Set();
+    const { data: reserva, error } = await sb
+      .from('reservas')
+      .insert({
+        cliente_nombre: clienteNombre.trim(),
+        cliente_telefono: telefono,
+        fecha,
+        hora,
+        num_personas: numPersonas,
+        mesa_numero: resultado.mesa_numero,
+        estado: 'pendiente',
+        canal: 'whatsapp',
+        notas: resultado.notas || null
+      })
+      .select()
+      .single();
 
-    reservasSolapadas.forEach(r => {
-      getMesaNumbersFromReserva(r).forEach(num => mesasOcupadas.add(String(num)));
-    });
+    if (error) {
+      console.error('Error reserva:', error);
 
-    const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
-    const mesaExacta = mesasLibres.find(m => m.capacidad >= numPersonas);
+      await enviarWhatsApp(
+        telefono,
+        'Perdona, no he podido guardar la reserva. Llámanos al 661 656 648 y te ayudamos enseguida.'
+      );
 
-    let mesaAsignada = null;
-    let mesasAgrupadas = [];
-    let notaFinal = limpiarNotasTecnicas(notas?.trim() || '');
+      return { ok: false, handledWithoutSendingCleanMessage: true };
+    }
+
+    console.log(`Reserva pendiente: ${clienteNombre} — ${fecha} ${hora} — mesa ${resultado.mesa_numero}`);
+
+    return { ok: true, reserva };
+  } catch (err) {
+    console.error('Error crearReserva:', err);
+
+    return { ok: false };
+  }
+}
+
+// ASIGNACIÓN Y VALIDACIÓN DE MESA
+async function calcularAsignacionMesa({
+  reservaIdExcluir = null,
+  fecha,
+  hora,
+  personas,
+  mesaNumeroSolicitada = null,
+  notas = null
+}) {
+  const { data: config } = await sb
+    .from('config')
+    .select('*')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .single();
+
+  const { data: mesas } = await sb
+    .from('mesas')
+    .select('*')
+    .order('capacidad');
+
+  const mesasOperativas = (mesas || []).filter(m => m.estado !== 'bloqueada');
+
+  const { data: reservasActivasDia } = await sb
+    .from('reservas')
+    .select('*')
+    .eq('fecha', fecha)
+    .in('estado', ['pendiente', 'confirmada']);
+
+  const reservasOtras = (reservasActivasDia || []).filter(r => {
+    if (!reservaIdExcluir) {
+      return true;
+    }
+
+    return String(r.id) !== String(reservaIdExcluir);
+  });
+
+  const duracionReserva = getReservaDuration(config);
+  const reservasSolapadas = getReservasSolapadas(reservasOtras, hora, duracionReserva);
+
+  const capacidadTotal = calcularCapacidadTotal(mesasOperativas);
+  const personasYaReservadas = reservasSolapadas.reduce((total, r) => {
+    return total + (parseInt(r.num_personas, 10) || 0);
+  }, 0);
+
+  const capacidadDisponible = capacidadTotal - personasYaReservadas;
+
+  if (capacidadDisponible < personas) {
+    return {
+      ok: false,
+      status: 409,
+      error: `No hay capacidad suficiente para esa hora. Quedan ${Math.max(capacidadDisponible, 0)} plazas disponibles.`,
+      mensajeCliente: `Lo siento, para ese día y hora ya tenemos el restaurante completo.
+
+Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemos si hay alguna opción manual.`
+    };
+  }
+
+  const mesasOcupadas = new Set();
+
+  reservasSolapadas.forEach(r => {
+    getMesaNumbersFromReserva(r).forEach(num => mesasOcupadas.add(String(num)));
+  });
+
+  const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
+
+  let mesaAsignada = null;
+  let mesasAgrupadas = [];
+
+  let notaFinal = limpiarNotasTecnicas(notas || '');
+
+  notaFinal = notaFinal
+    .replace(/\s*\|?\s*Mesas agrupadas:\s*[0-9+,\s]+/gi, '')
+    .replace(/\s+\|\s+/g, ' | ')
+    .replace(/^\|\s*|\s*\|$/g, '')
+    .trim();
+
+  if (mesaNumeroSolicitada) {
+    const mesaManual = mesasOperativas.find(m => String(m.numero) === String(mesaNumeroSolicitada));
+
+    if (!mesaManual) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'La mesa seleccionada no existe o está bloqueada.'
+      };
+    }
+
+    if (mesasOcupadas.has(String(mesaManual.numero))) {
+      return {
+        ok: false,
+        status: 409,
+        error: `La mesa ${mesaManual.numero} ya está ocupada en esa franja horaria.`
+      };
+    }
+
+    if ((parseInt(mesaManual.capacidad, 10) || 0) < personas) {
+      return {
+        ok: false,
+        status: 409,
+        error: `La mesa ${mesaManual.numero} no tiene capacidad suficiente para ${personas} personas.`
+      };
+    }
+
+    mesaAsignada = mesaManual;
+  } else {
+    const mesaExacta = mesasLibres.find(m => (parseInt(m.capacidad, 10) || 0) >= personas);
 
     if (mesaExacta) {
       mesaAsignada = mesaExacta;
@@ -988,74 +969,38 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
         candidatas.push(m);
         capacidadAcumulada += parseInt(m.capacidad, 10) || 0;
 
-        if (capacidadAcumulada >= numPersonas) break;
+        if (capacidadAcumulada >= personas) {
+          break;
+        }
       }
 
-      if (capacidadAcumulada >= numPersonas) {
+      if (capacidadAcumulada >= personas) {
         mesasAgrupadas = candidatas;
         mesaAsignada = candidatas[0];
 
         const nums = candidatas.map(m => m.numero).join(' + ');
         notaFinal = (notaFinal ? notaFinal + ' | ' : '') + `Mesas agrupadas: ${nums}`;
-
-        console.log(`Mesas agrupadas: ${nums} para ${numPersonas} personas`);
       }
     }
-
-    if (!mesaAsignada) {
-      const msgSinMesa = mesasLibres.length === 0
-        ? `Lo siento, no tenemos mesas disponibles para ese día y hora. Llámanos al 661 656 648 y te buscamos la mejor opción.`
-        : `Para una reserva de ${numPersonas} personas necesitamos confirmarte disponibilidad manualmente. Por favor llámanos al 661 656 648 o escríbenos y te atendemos enseguida.`;
-
-      await enviarWhatsApp(telefono, msgSinMesa);
-
-      return { ok: false, handledWithoutSendingCleanMessage: true };
-    }
-
-    const mesasReserva = mesasAgrupadas.length ? mesasAgrupadas : [mesaAsignada];
-    const notaFinalConMesas = notaFinal || null;
-
-    const { data: reserva, error } = await sb
-      .from('reservas')
-      .insert({
-        cliente_nombre: clienteNombre.trim(),
-        cliente_telefono: telefono,
-        fecha,
-        hora,
-        num_personas: numPersonas,
-        mesa_numero: mesaAsignada.numero,
-        estado: 'pendiente',
-        canal: 'whatsapp',
-        notas: notaFinalConMesas
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error reserva:', error.message);
-
-      await enviarWhatsApp(
-        telefono,
-        'Perdona, no he podido guardar la reserva. Llámanos al 661 656 648 y te ayudamos enseguida.'
-      );
-
-      return { ok: false, handledWithoutSendingCleanMessage: true };
-    }
-
-    console.log(
-      `Reserva pendiente: ${clienteNombre} — ${fecha} ${hora} — mesa(s): ${mesasReserva.map(m => m.numero).join('+')}`
-    );
-
-    return { ok: true, reserva };
-  } catch (err) {
-    console.error('Error crearReserva:', err.message);
-    return { ok: false };
   }
+
+  if (!mesaAsignada) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'No hay mesas disponibles para esa reserva en la franja seleccionada.',
+      mensajeCliente: `Para una reserva de ${personas} personas necesitamos confirmarte disponibilidad manualmente. Por favor llámanos al 661 656 648 o escríbenos y te atendemos enseguida.`
+    };
+  }
+
+  return {
+    ok: true,
+    mesa_numero: mesaAsignada.numero,
+    notas: notaFinal || null
+  };
 }
 
-// ─────────────────────────────────────────────────────────────
 // AVISOS AUTOMÁTICOS DEL DÍA
-// ─────────────────────────────────────────────────────────────
 async function procesarAvisosReservasHoy() {
   if (!estaEnHorarioEnvioAvisosHoy()) {
     console.log('Avisos del día no enviados: fuera del horario permitido');
@@ -1093,13 +1038,9 @@ async function procesarAvisosReservasHoy() {
     }
 
     try {
-      let mensaje;
-
-      if (reserva.estado === 'confirmada') {
-        mensaje = construirMensajeRecordatorioConfirmada(reserva);
-      } else {
-        mensaje = construirMensajePendienteConfirmacion(reserva);
-      }
+      const mensaje = reserva.estado === 'confirmada'
+        ? construirMensajeRecordatorioConfirmada(reserva)
+        : construirMensajePendienteConfirmacion(reserva);
 
       await enviarWhatsApp(reserva.cliente_telefono, mensaje);
 
@@ -1133,9 +1074,7 @@ procesarAvisosReservasHoy().catch(err => {
   console.error('Error en arranque de avisos del día:', err.message);
 });
 
-// ─────────────────────────────────────────────────────────────
 // MENSAJES
-// ─────────────────────────────────────────────────────────────
 function construirMensajeRecordatorioConfirmada(reserva) {
   const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
   const personas = reserva.num_personas || '';
@@ -1197,9 +1136,7 @@ Cancelar reserva:
 ${linkCancelar}`;
 }
 
-// ─────────────────────────────────────────────────────────────
 // REGISTRO DE AVISOS
-// ─────────────────────────────────────────────────────────────
 async function yaExisteAvisoReserva(reservaId, tipo) {
   const { data, error } = await sb
     .from('avisos_reserva')
@@ -1242,9 +1179,7 @@ async function registrarAvisoReserva({
   }
 }
 
-// ─────────────────────────────────────────────────────────────
 // ENVIAR WHATSAPP
-// ─────────────────────────────────────────────────────────────
 async function enviarWhatsApp(telefono, mensaje) {
   try {
     await axios.post(
@@ -1270,9 +1205,7 @@ async function enviarWhatsApp(telefono, mensaje) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
 // HELPERS GENERALES
-// ─────────────────────────────────────────────────────────────
 function getPublicBaseUrl() {
   return process.env.BASE_URL || 'https://rezzy.es';
 }
@@ -1331,7 +1264,9 @@ function getMadridNowMinutes() {
 function isoToUTCDate(iso) {
   const [y, m, d] = String(iso || '').split('-').map(Number);
 
-  if (!y || !m || !d) return null;
+  if (!y || !m || !d) {
+    return null;
+  }
 
   return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
 }
@@ -1339,7 +1274,9 @@ function isoToUTCDate(iso) {
 function addDaysISO(iso, days) {
   const d = isoToUTCDate(iso);
 
-  if (!d) return null;
+  if (!d) {
+    return null;
+  }
 
   d.setUTCDate(d.getUTCDate() + days);
 
@@ -1349,7 +1286,9 @@ function addDaysISO(iso, days) {
 function weekdayNameFromISO(iso) {
   const d = isoToUTCDate(iso);
 
-  if (!d) return '';
+  if (!d) {
+    return '';
+  }
 
   return DIAS_SEMANA[d.getUTCDay()];
 }
@@ -1414,7 +1353,9 @@ function extractWeekdayHint(text) {
 }
 
 function isValidISODate(iso) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) {
+    return false;
+  }
 
   const d = isoToUTCDate(iso);
 
@@ -1424,12 +1365,16 @@ function isValidISODate(iso) {
 function normalizarFechaReserva(fechaRaw, textoCompleto) {
   let fecha = String(fechaRaw || '').trim();
 
-  if (!isValidISODate(fecha)) return null;
+  if (!isValidISODate(fecha)) {
+    return null;
+  }
 
   const hint = extractWeekdayHint(textoCompleto);
   const actualDay = weekdayNameFromISO(fecha);
 
-  if (!hint || actualDay === hint.dayName) return fecha;
+  if (!hint || actualDay === hint.dayName) {
+    return fecha;
+  }
 
   const today = getMadridTodayISO();
   const candidates = [];
@@ -1450,9 +1395,7 @@ function normalizarFechaReserva(fechaRaw, textoCompleto) {
   if (candidates.length) {
     candidates.sort((a, b) => a.score - b.score);
 
-    console.log(
-      `Fecha corregida por coherencia: ${fecha} (${actualDay}) → ${candidates[0].candidate} (${hint.dayName})`
-    );
+    console.log(`Fecha corregida por coherencia: ${fecha} (${actualDay}) → ${candidates[0].candidate} (${hint.dayName})`);
 
     return candidates[0].candidate;
   }
@@ -1464,12 +1407,16 @@ function normalizarHoraReserva(horaRaw) {
   const raw = String(horaRaw || '').trim();
   const match = raw.match(/^(\d{1,2}):(\d{2})/);
 
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   const h = parseInt(match[1], 10);
   const m = parseInt(match[2], 10);
 
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) {
+    return null;
+  }
 
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
@@ -1488,20 +1435,27 @@ function minutesUntilReservation(fecha, hora) {
   const todayDate = isoToUTCDate(today);
   const reservaDate = isoToUTCDate(fecha);
 
-  if (!todayDate || !reservaDate) return -9999;
+  if (!todayDate || !reservaDate) {
+    return -9999;
+  }
 
   const diffDays = Math.round((reservaDate - todayDate) / (24 * 60 * 60 * 1000));
   const reservaMinutos = timeToMinutes(hora);
   const ahoraMinutos = getMadridNowMinutes();
 
-  if (reservaMinutos === null || ahoraMinutos === null) return -9999;
+  if (reservaMinutos === null || ahoraMinutos === null) {
+    return -9999;
+  }
 
   return (diffDays * 1440) + reservaMinutos - ahoraMinutos;
 }
 
 function timeToMinutes(hora) {
   const match = String(hora || '').match(/^(\d{1,2}):(\d{2})/);
-  if (!match) return null;
+
+  if (!match) {
+    return null;
+  }
 
   return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
 }
@@ -1530,13 +1484,19 @@ function calcularCapacidadTotal(mesas) {
 
 function getReservasSolapadas(reservas, hora, duracionMinutos) {
   const inicioNueva = timeToMinutes(hora);
-  if (inicioNueva === null) return [];
+
+  if (inicioNueva === null) {
+    return [];
+  }
 
   const finNueva = inicioNueva + duracionMinutos;
 
   return (reservas || []).filter(r => {
     const inicioExistente = timeToMinutes(r.hora);
-    if (inicioExistente === null) return false;
+
+    if (inicioExistente === null) {
+      return false;
+    }
 
     const finExistente = inicioExistente + duracionMinutos;
 
@@ -1545,24 +1505,35 @@ function getReservasSolapadas(reservas, hora, duracionMinutos) {
 }
 
 function estaDentroDeHorario(horarios, fecha, hora) {
-  if (!horarios || !horarios.length) return true;
+  if (!horarios || !horarios.length) {
+    return true;
+  }
 
   const d = isoToUTCDate(fecha);
-  if (!d) return false;
+
+  if (!d) {
+    return false;
+  }
 
   const jsDay = d.getUTCDay();
   const diaHorario = jsDay === 0 ? 6 : jsDay - 1;
   const horaMin = timeToMinutes(hora);
 
-  if (horaMin === null) return false;
+  if (horaMin === null) {
+    return false;
+  }
 
   return horarios.some(h => {
-    if (parseInt(h.dia, 10) !== diaHorario) return false;
+    if (parseInt(h.dia, 10) !== diaHorario) {
+      return false;
+    }
 
     const inicio = timeToMinutes(h.hora_inicio);
     const fin = timeToMinutes(h.hora_fin);
 
-    if (inicio === null || fin === null) return false;
+    if (inicio === null || fin === null) {
+      return false;
+    }
 
     if (fin >= inicio) {
       return horaMin >= inicio && horaMin <= fin;
@@ -1592,11 +1563,15 @@ function getMesaNumbersFromReserva(r) {
 }
 
 function formatFechaLegible(fecha) {
-  if (!fecha) return '';
+  if (!fecha) {
+    return '';
+  }
 
   const d = isoToUTCDate(fecha);
 
-  if (!d) return fecha;
+  if (!d) {
+    return fecha;
+  }
 
   return d.toLocaleDateString('es-ES', {
     weekday: 'long',
@@ -1607,4 +1582,7 @@ function formatFechaLegible(fecha) {
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Silbis chatbot en puerto ${PORT}`));
+
+app.listen(PORT, () => {
+  console.log(`Silbis chatbot en puerto ${PORT}`);
+});
