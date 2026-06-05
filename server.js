@@ -20,7 +20,10 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 // HEALTH CHECK
 // ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({ status: 'Silbis chatbot activo', time: new Date().toISOString() });
+  res.json({
+    status: 'Silbis chatbot activo',
+    time: new Date().toISOString()
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -54,12 +57,32 @@ app.get('/confirmar/:reservaId', async (req, res) => {
 
     if (!reserva) return res.status(404).send('Reserva no encontrada');
 
+    if (reserva.estado === 'cancelada') {
+      return res.send(`
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Reserva cancelada | Silbis</title>
+          </head>
+          <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:40px;background:#141416;color:#f5f5f7">
+            <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
+              <h1 style="color:#bf3228;margin:0 0 12px">Silbis</h1>
+              <h2>Esta reserva está cancelada</h2>
+              <p style="color:#a1a1a6">Si necesitas ayuda, llámanos al 661 656 648.</p>
+            </div>
+          </body>
+        </html>
+      `);
+    }
+
     await sb
       .from('reservas')
       .update({ estado: 'confirmada' })
       .eq('id', reservaId);
 
     const msg = `Perfecto, tu reserva en Silbis queda confirmada para el ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0, 5)}. Te esperamos. Si necesitas cualquier cosa, puedes llamarnos al 661 656 648.`;
+
     await enviarWhatsApp(reserva.cliente_telefono, msg);
 
     res.send(`
@@ -103,7 +126,10 @@ app.get('/cancelar/:reservaId', async (req, res) => {
     if (reserva.estado === 'cancelada') {
       return res.send(`
         <html>
-          <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
           <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:40px;background:#141416;color:#f5f5f7">
             <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
               <h1 style="color:#bf3228">Silbis</h1>
@@ -121,6 +147,7 @@ app.get('/cancelar/:reservaId', async (req, res) => {
       .eq('id', reservaId);
 
     const msg = `Tu reserva en Silbis del ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0, 5)} ha quedado cancelada. Si ha sido un error o quieres hacer otra reserva, escríbenos o llámanos al 661 656 648.`;
+
     await enviarWhatsApp(reserva.cliente_telefono, msg);
 
     res.send(`
@@ -147,7 +174,7 @@ app.get('/cancelar/:reservaId', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// REENVIAR CONFIRMACIÓN DESDE PANEL
+// REENVIAR CONFIRMACIÓN DESDE PANEL, COMPATIBILIDAD
 // ─────────────────────────────────────────────────────────────
 app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
@@ -161,11 +188,17 @@ app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
 
     if (!reserva) return res.status(404).json({ error: 'No encontrada' });
 
-    const baseUrl = getPublicBaseUrl();
-    const link = `${baseUrl}/confirmar/${reservaId}`;
-    const fechaLegible = formatFechaLegible(reserva.fecha);
+    const mensaje = construirMensajePendienteConfirmacion(reserva);
 
-    await enviarMensajeConfirmacion(reserva.cliente_telefono, reserva, link, fechaLegible);
+    await enviarWhatsApp(reserva.cliente_telefono, mensaje);
+
+    await registrarAvisoReserva({
+      reserva,
+      tipo: 'recordatorio_panel_legacy',
+      mensaje,
+      enviadoPor: 'panel',
+      estado: 'enviado'
+    });
 
     res.json({ ok: true });
   } catch (err) {
@@ -173,12 +206,17 @@ app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ─────────────────────────────────────────────────────────────
 // ENVIAR AVISO MANUAL DESDE PANEL Y GUARDAR HISTORIAL
 // ─────────────────────────────────────────────────────────────
 app.post('/reservas/:reservaId/avisos', async (req, res) => {
   const { reservaId } = req.params;
-  const { tipo = 'recordatorio', mensaje_personalizado = null, enviado_por = 'panel' } = req.body || {};
+  const {
+    tipo = 'recordatorio',
+    mensaje_personalizado = null,
+    enviado_por = 'panel'
+  } = req.body || {};
 
   try {
     const { data: reserva, error } = await sb
@@ -195,81 +233,31 @@ app.post('/reservas/:reservaId/avisos', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'La reserva no tiene teléfono asociado' });
     }
 
-    const baseUrl = getPublicBaseUrl();
-    const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
-    const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
-    const fechaLegible = formatFechaLegible(reserva.fecha);
-    const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
-
     let mensaje;
 
     if (tipo === 'ultimo_aviso') {
-      mensaje = `Hola ${reserva.cliente_nombre}, tu reserva en Silbis para hoy a las ${hora}, para ${reserva.num_personas} personas, sigue pendiente de confirmación.
-
-Si quieres mantenerla, puedes confirmarla aquí:
-${linkConfirmar}
-
-Si finalmente no puedes venir, puedes cancelarla aquí:
-${linkCancelar}
-
-Si no recibimos confirmación, es posible que el restaurante libere la mesa para otros clientes.`;
+      mensaje = construirMensajeUltimoAviso(reserva);
     } else if (tipo === 'personalizado' && mensaje_personalizado) {
-      mensaje = `${mensaje_personalizado}
-
-Confirmar reserva:
-${linkConfirmar}
-
-Cancelar reserva:
-${linkCancelar}`;
+      mensaje = construirMensajePersonalizado(reserva, mensaje_personalizado);
     } else {
-      mensaje = `Hola ${reserva.cliente_nombre}, te recordamos que tu reserva en Silbis para hoy a las ${hora}, para ${reserva.num_personas} personas, sigue pendiente de confirmación.
-
-Puedes confirmarla aquí:
-${linkConfirmar}
-
-Si finalmente no puedes venir, puedes cancelarla aquí:
-${linkCancelar}
-
-Gracias.`;
+      mensaje = construirMensajePendienteConfirmacion(reserva);
     }
 
-    try {
-      await enviarWhatsApp(reserva.cliente_telefono, mensaje);
+    await enviarWhatsApp(reserva.cliente_telefono, mensaje);
 
-      await sb
-        .from('avisos_reserva')
-        .insert({
-          reserva_id: reserva.id,
-          telefono: reserva.cliente_telefono,
-          tipo,
-          mensaje,
-          enviado_por,
-          estado: 'enviado'
-        });
+    await registrarAvisoReserva({
+      reserva,
+      tipo,
+      mensaje,
+      enviadoPor: enviado_por,
+      estado: 'enviado'
+    });
 
-      return res.json({
-        ok: true,
-        tipo,
-        enviado_at: new Date().toISOString()
-      });
-    } catch (sendError) {
-      await sb
-        .from('avisos_reserva')
-        .insert({
-          reserva_id: reserva.id,
-          telefono: reserva.cliente_telefono,
-          tipo,
-          mensaje,
-          enviado_por,
-          estado: 'error',
-          error: sendError.message
-        });
-
-      return res.status(500).json({
-        ok: false,
-        error: sendError.message
-      });
-    }
+    return res.json({
+      ok: true,
+      tipo,
+      enviado_at: new Date().toISOString()
+    });
   } catch (err) {
     console.error('Error enviando aviso:', err.message);
     res.status(500).json({ ok: false, error: err.message });
@@ -482,21 +470,25 @@ async function crearReservaPendiente(texto, nombre, telefono, config, horarios) 
 
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
-const antelacionMinima = getMinAntelacionMinutos(config);
-const minutosRestantes = minutesUntilReservation(fecha, hora);
 
-if (minutosRestantes < antelacionMinima) {
-  const msgPocaAntelacion = `Para reservas con menos de una hora y media de antelación, es mejor que nos llames directamente al 661 656 648.
+    const antelacionMinima = getMinAntelacionMinutos(config);
+    const minutosRestantes = minutesUntilReservation(fecha, hora);
+
+    if (minutosRestantes < antelacionMinima) {
+      const msgPocaAntelacion = `Para reservas con menos de una hora y media de antelación, es mejor que nos llames directamente al 661 656 648.
 
 Así podemos confirmarte disponibilidad al momento y atenderte mejor.`;
 
-  await enviarWhatsApp(telefono, msgPocaAntelacion);
+      await enviarWhatsApp(telefono, msgPocaAntelacion);
 
-  return { ok: false, handledWithoutSendingCleanMessage: true };
-}
+      return { ok: false, handledWithoutSendingCleanMessage: true };
+    }
+
     if (!estaDentroDeHorario(horarios, fecha, hora)) {
       const msgFueraHorario = `Lo siento, ese día u hora no aparece dentro del horario de reservas de Silbis. Dime otra hora o, si lo prefieres, llámanos al 661 656 648 y lo vemos contigo.`;
+
       await enviarWhatsApp(telefono, msgFueraHorario);
+
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
 
@@ -531,6 +523,7 @@ Así podemos confirmarte disponibilidad al momento y atenderte mejor.`;
 Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemos si hay alguna opción manual.`;
 
       await enviarWhatsApp(telefono, msgLleno);
+
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
 
@@ -577,6 +570,7 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
         : `Para una reserva de ${numPersonas} personas necesitamos confirmarte disponibilidad manualmente. Por favor llámanos al 661 656 648 o escríbenos y te atendemos enseguida.`;
 
       await enviarWhatsApp(telefono, msgSinMesa);
+
       return { ok: false, handledWithoutSendingCleanMessage: true };
     }
 
@@ -614,8 +608,6 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
       `Reserva pendiente: ${clienteNombre} — ${fecha} ${hora} — mesa(s): ${mesasReserva.map(m => m.numero).join('+')}`
     );
 
-    await programarConfirmacion(reserva, telefono);
-
     return { ok: true, reserva };
   } catch (err) {
     console.error('Error crearReserva:', err.message);
@@ -624,78 +616,193 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
 }
 
 // ─────────────────────────────────────────────────────────────
-// CONFIRMACIONES
+// AVISOS AUTOMÁTICOS DEL DÍA
 // ─────────────────────────────────────────────────────────────
-async function programarConfirmacion(reserva, telefono) {
-  const baseUrl = getPublicBaseUrl();
-  const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
-  const fechaLegible = formatFechaLegible(reserva.fecha);
+async function procesarAvisosReservasHoy() {
+  if (!estaEnHorarioEnvioAvisosHoy()) {
+    console.log('Avisos del día no enviados: fuera del horario permitido');
+    return;
+  }
 
-    const hoy = getMadridTodayISO();
+  const hoy = getMadridTodayISO();
 
-  if (reserva.fecha === hoy) {
-    await enviarMensajeConfirmacion(telefono, reserva, linkConfirmar, fechaLegible);
-  } else {
-    await sb
-      .from('confirmaciones_pendientes')
-      .upsert({
-        reserva_id: reserva.id,
-        telefono,
-        fecha_envio: reserva.fecha,
-        link: linkConfirmar,
-        enviado: false
-      })
-      .select();
+  const { data: reservas, error } = await sb
+    .from('reservas')
+    .select('*')
+    .eq('fecha', hoy)
+    .in('estado', ['pendiente', 'confirmada'])
+    .order('hora', { ascending: true });
 
-    console.log(`Confirmación programada para el ${reserva.fecha}`);
+  if (error) {
+    console.error('Error cargando reservas del día:', error.message);
+    return;
+  }
+
+  if (!reservas?.length) {
+    console.log('No hay reservas de hoy para enviar avisos');
+    return;
+  }
+
+  for (const reserva of reservas) {
+    const tipoAviso = reserva.estado === 'confirmada'
+      ? 'recordatorio_confirmada_dia'
+      : 'recordatorio_pendiente_dia';
+
+    const yaEnviado = await yaExisteAvisoReserva(reserva.id, tipoAviso);
+
+    if (yaEnviado) {
+      continue;
+    }
+
+    try {
+      let mensaje;
+
+      if (reserva.estado === 'confirmada') {
+        mensaje = construirMensajeRecordatorioConfirmada(reserva);
+      } else {
+        mensaje = construirMensajePendienteConfirmacion(reserva);
+      }
+
+      await enviarWhatsApp(reserva.cliente_telefono, mensaje);
+
+      await registrarAvisoReserva({
+        reserva,
+        tipo: tipoAviso,
+        mensaje,
+        enviadoPor: 'automatico',
+        estado: 'enviado'
+      });
+
+      console.log(`Aviso automático enviado: ${tipoAviso} → ${reserva.cliente_nombre}`);
+    } catch (err) {
+      console.error('Error enviando aviso automático:', err.message);
+
+      await registrarAvisoReserva({
+        reserva,
+        tipo: tipoAviso,
+        mensaje: 'Error al enviar aviso automático',
+        enviadoPor: 'automatico',
+        estado: 'error',
+        error: err.message
+      });
+    }
   }
 }
 
-async function enviarMensajeConfirmacion(telefono, reserva, link, fechaLegible) {
+setInterval(procesarAvisosReservasHoy, 15 * 60 * 1000);
+
+procesarAvisosReservasHoy().catch(err => {
+  console.error('Error en arranque de avisos del día:', err.message);
+});
+
+// ─────────────────────────────────────────────────────────────
+// MENSAJES
+// ─────────────────────────────────────────────────────────────
+function construirMensajeRecordatorioConfirmada(reserva) {
+  const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
+  const personas = reserva.num_personas || '';
+
+  return `Hola ${reserva.cliente_nombre}, te recordamos que tienes una reserva confirmada hoy en Silbis a las ${hora}, para ${personas} personas.
+
+Te esperamos en C/ Carnicerías, 2, Tudela.
+
+Si necesitas cambiar algo o finalmente no puedes venir, llámanos al 661 656 648.`;
+}
+
+function construirMensajePendienteConfirmacion(reserva) {
   const baseUrl = getPublicBaseUrl();
+  const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
   const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
+  const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
+  const personas = reserva.num_personas || '';
 
-  const msg = `Hola ${reserva.cliente_nombre}, te escribimos para recordarte tu reserva en Silbis el ${fechaLegible} a las ${reserva.hora.slice(0, 5)} para ${reserva.num_personas} personas.
+  return `Hola ${reserva.cliente_nombre}, tu reserva en Silbis para hoy a las ${hora}, para ${personas} personas, sigue pendiente de confirmación.
 
-Si vas a venir, puedes confirmarlo aquí:
-${link}
+Si vas a venir, puedes confirmarla aquí:
+${linkConfirmar}
 
-Si finalmente no puedes venir, puedes cancelar aquí:
+Si finalmente no puedes venir, puedes cancelarla aquí:
 ${linkCancelar}
 
 Si te resulta más cómodo, también puedes llamarnos al 661 656 648.`;
-
-  await enviarWhatsApp(telefono, msg);
-  console.log(`Confirmación enviada a ${telefono}`);
 }
 
-async function procesarConfirmacionesDia() {
-  const hoy = getMadridTodayISO();
+function construirMensajeUltimoAviso(reserva) {
+  const baseUrl = getPublicBaseUrl();
+  const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
+  const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
+  const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
+  const personas = reserva.num_personas || '';
 
-  const { data: pendientes } = await sb
-    .from('confirmaciones_pendientes')
-    .select('*, reservas(*)')
-    .eq('fecha_envio', hoy)
-    .eq('enviado', false);
+  return `Hola ${reserva.cliente_nombre}, tu reserva en Silbis para hoy a las ${hora}, para ${personas} personas, sigue pendiente de confirmación.
 
-  if (!pendientes?.length) return;
+Si quieres mantenerla, puedes confirmarla aquí:
+${linkConfirmar}
 
-  for (const p of pendientes) {
-    const reserva = p.reservas;
-    if (!reserva) continue;
+Si finalmente no puedes venir, puedes cancelarla aquí:
+${linkCancelar}
 
-    const fechaLegible = formatFechaLegible(reserva.fecha);
+Si no recibimos confirmación, es posible que el restaurante libere la mesa para otros clientes.`;
+}
 
-    await enviarMensajeConfirmacion(p.telefono, reserva, p.link, fechaLegible);
+function construirMensajePersonalizado(reserva, mensajePersonalizado) {
+  const baseUrl = getPublicBaseUrl();
+  const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
+  const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
 
-    await sb
-      .from('confirmaciones_pendientes')
-      .update({ enviado: true })
-      .eq('id', p.id);
+  return `${mensajePersonalizado}
+
+Confirmar reserva:
+${linkConfirmar}
+
+Cancelar reserva:
+${linkCancelar}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// REGISTRO DE AVISOS
+// ─────────────────────────────────────────────────────────────
+async function yaExisteAvisoReserva(reservaId, tipo) {
+  const { data, error } = await sb
+    .from('avisos_reserva')
+    .select('id')
+    .eq('reserva_id', reservaId)
+    .eq('tipo', tipo)
+    .eq('estado', 'enviado')
+    .limit(1);
+
+  if (error) {
+    console.error('Error consultando avisos_reserva:', error.message);
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function registrarAvisoReserva({
+  reserva,
+  tipo,
+  mensaje,
+  enviadoPor = 'panel',
+  estado = 'enviado',
+  error = null
+}) {
+  const { error: insertError } = await sb
+    .from('avisos_reserva')
+    .insert({
+      reserva_id: reserva.id,
+      telefono: reserva.cliente_telefono,
+      tipo,
+      mensaje,
+      enviado_por: enviadoPor,
+      estado,
+      error
+    });
+
+  if (insertError) {
+    console.error('Error registrando aviso:', insertError.message);
   }
 }
-
-setInterval(procesarConfirmacionesDia, 60 * 60 * 1000);
 
 // ─────────────────────────────────────────────────────────────
 // ENVIAR WHATSAPP
@@ -721,6 +828,7 @@ async function enviarWhatsApp(telefono, mensaje) {
     console.log(`Enviado a ${telefono}`);
   } catch (err) {
     console.error('Error WhatsApp:', err.response?.data || err.message);
+    throw err;
   }
 }
 
@@ -728,7 +836,23 @@ async function enviarWhatsApp(telefono, mensaje) {
 // HELPERS GENERALES
 // ─────────────────────────────────────────────────────────────
 function getPublicBaseUrl() {
-  return process.env.BASE_URL || 'https://earnest-illumination-production-dd04.up.railway.app';
+  return process.env.BASE_URL || 'https://rezzy.es';
+}
+
+function estaEnHorarioEnvioAvisosHoy() {
+  const inicio = process.env.AVISOS_DIA_HORA_INICIO || '10:00';
+  const fin = process.env.AVISOS_DIA_HORA_FIN || '20:00';
+
+  const ahora = getMadridNowHHMM();
+  const ahoraMin = timeToMinutes(ahora);
+  const inicioMin = timeToMinutes(inicio);
+  const finMin = timeToMinutes(fin);
+
+  if (ahoraMin === null || inicioMin === null || finMin === null) {
+    return false;
+  }
+
+  return ahoraMin >= inicioMin && ahoraMin <= finMin;
 }
 
 function getMadridTodayISO() {
@@ -746,6 +870,24 @@ function formatMadridISO(date) {
   const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
 
   return `${map.year}-${map.month}-${map.day}`;
+}
+
+function getMadridNowHHMM() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date());
+
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+
+  return `${map.hour}:${map.minute}`;
+}
+
+function getMadridNowMinutes() {
+  const hhmm = getMadridNowHHMM();
+  return timeToMinutes(hhmm);
 }
 
 function isoToUTCDate(iso) {
@@ -893,6 +1035,7 @@ function normalizarHoraReserva(horaRaw) {
 
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
+
 function getMinAntelacionMinutos(config) {
   const configHoras = Number(config?.antelacion_min_h);
   const configMinutos = Number.isFinite(configHoras) && configHoras > 0
@@ -918,23 +1061,6 @@ function minutesUntilReservation(fecha, hora) {
   return (diffDays * 1440) + reservaMinutos - ahoraMinutos;
 }
 
-function getMadridNowMinutes() {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TIMEZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).formatToParts(new Date());
-
-  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
-  const hour = parseInt(map.hour, 10);
-  const minute = parseInt(map.minute, 10);
-
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
-
-  return hour * 60 + minute;
-}
-
 function timeToMinutes(hora) {
   const match = String(hora || '').match(/^(\d{1,2}):(\d{2})/);
   if (!match) return null;
@@ -947,7 +1073,14 @@ function intervalsOverlap(startA, endA, startB, endB) {
 }
 
 function getReservaDuration(config) {
-  const dur = parseInt(config?.duracion_reserva, 10);
+  const dur = parseInt(
+    config?.duracion_reserva ||
+    config?.duracion_min ||
+    config?.duracion ||
+    90,
+    10
+  );
+
   return Number.isFinite(dur) && dur > 0 ? dur : 90;
 }
 
@@ -993,7 +1126,11 @@ function estaDentroDeHorario(horarios, fecha, hora) {
 
     if (inicio === null || fin === null) return false;
 
-    return horaMin >= inicio && horaMin <= fin;
+    if (fin >= inicio) {
+      return horaMin >= inicio && horaMin <= fin;
+    }
+
+    return horaMin >= inicio || horaMin <= fin;
   });
 }
 
