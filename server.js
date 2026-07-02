@@ -602,7 +602,7 @@ app.post('/webhook', async (req, res) => {
 
     await procesarMensaje(telefono, nombre, texto);
   } catch (err) {
-    console.error('Error webhook:', err.message);
+    console.error('Error webhook:', err.message || err);
   }
 });
 
@@ -747,14 +747,35 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
 
   console.log('Último mensaje enviado a Claude:', texto);
 
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 700,
-    system: systemPrompt,
-    messages
-  });
+  let respuesta = '';
 
-  const respuesta = response.content[0].text || '';
+  try {
+    const response = await llamarClaudeConReintentos({
+      systemPrompt,
+      messages
+    });
+
+    respuesta = response.content?.[0]?.text || '';
+  } catch (err) {
+    console.error('Claude falló definitivamente:', err.message || err);
+
+    const mensajeFallback = `Perdona, ahora mismo estoy teniendo un problema para procesar la reserva.
+
+Puedes llamarnos al 661 656 648 y te atendemos enseguida.`;
+
+    await sb
+      .from('mensajes')
+      .insert({
+        conversacion_id: conv.id,
+        origen: 'bot',
+        texto: mensajeFallback
+      });
+
+    await enviarWhatsApp(telefono, mensajeFallback);
+
+    return;
+  }
+
   const respuestaLimpia = cleanTechnicalMarkers(respuesta);
 
   let reservaProcesada = null;
@@ -778,6 +799,38 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
   }
 
   await enviarWhatsApp(telefono, respuestaLimpia || 'Perfecto, he tomado nota.');
+}
+
+// ─────────────────────────────────────────────────────────────
+// CLAUDE CON REINTENTOS
+// ─────────────────────────────────────────────────────────────
+async function llamarClaudeConReintentos({ systemPrompt, messages }) {
+  const intentos = 3;
+
+  for (let i = 1; i <= intentos; i++) {
+    try {
+      console.log(`Llamando a Claude, intento ${i}/${intentos}`);
+
+      return await claude.messages.create({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 700,
+        system: systemPrompt,
+        messages
+      });
+    } catch (err) {
+      console.error(`Error Claude intento ${i}:`, err.message || err);
+
+      if (i === intentos) {
+        throw err;
+      }
+
+      await esperar(1200 * i);
+    }
+  }
+}
+
+function esperar(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ─────────────────────────────────────────────────────────────
