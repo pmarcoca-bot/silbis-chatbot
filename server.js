@@ -350,12 +350,6 @@ app.post('/reservas/manual', async (req, res) => {
       });
     }
 
-    const { data: config } = await sb
-      .from('config')
-      .select('*')
-      .eq('id', '00000000-0000-0000-0000-000000000001')
-      .single();
-
     const { data: horarios } = await sb
       .from('horarios')
       .select('*')
@@ -481,10 +475,7 @@ app.put('/reservas/:reservaId', async (req, res) => {
       });
     }
 
-    let mesaAsignadaNumero = mesa_numero
-      ? parseInt(mesa_numero, 10)
-      : null;
-
+    let mesaAsignadaNumero = mesa_numero ? parseInt(mesa_numero, 10) : null;
     let notaFinal = limpiarNotasTecnicas(notas || '');
 
     notaFinal = notaFinal
@@ -641,12 +632,14 @@ async function procesarMensaje(telefono, nombre, texto) {
       texto
     });
 
-  const { data: historial } = await sb
+  const { data: historialRaw } = await sb
     .from('mensajes')
     .select('*')
     .eq('conversacion_id', conv.id)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(30);
+
+  const historial = (historialRaw || []).reverse();
 
   const { data: config } = await sb
     .from('config')
@@ -717,10 +710,12 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
 6. Al confirmar, no digas que la reserva está confirmada definitivamente. Di que queda registrada y pendiente de confirmación final si procede.
 7. Si preguntan por el menú, explica que son hamburguesas artesanas y que pueden ver la carta en silbis.es.`;
 
-  const messages = (historial || []).map(m => ({
-    role: m.origen === 'bot' ? 'assistant' : 'user',
-    content: cleanTechnicalMarkers(m.texto) || String(m.texto || '')
-  }));
+  const messages = (historial || [])
+    .filter(m => cleanTechnicalMarkers(m.texto))
+    .map(m => ({
+      role: m.origen === 'bot' ? 'assistant' : 'user',
+      content: cleanTechnicalMarkers(m.texto)
+    }));
 
   const response = await claude.messages.create({
     model: 'claude-sonnet-4-5',
@@ -918,8 +913,6 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
   const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
 
   let mesaAsignada = null;
-  let mesasAgrupadas = [];
-
   let notaFinal = limpiarNotasTecnicas(notas || '');
 
   notaFinal = notaFinal
@@ -975,7 +968,6 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
       }
 
       if (capacidadAcumulada >= personas) {
-        mesasAgrupadas = candidatas;
         mesaAsignada = candidatas[0];
 
         const nums = candidatas.map(m => m.numero).join(' + ');
