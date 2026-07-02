@@ -58,7 +58,9 @@ const MESES = [
   'diciembre'
 ];
 
+// ─────────────────────────────────────────────────────────────
 // HEALTH CHECK
+// ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({
     status: 'Silbis chatbot activo',
@@ -66,7 +68,9 @@ app.get('/', (req, res) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────
 // WEBHOOK VERIFICACIÓN META
+// ─────────────────────────────────────────────────────────────
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -80,7 +84,9 @@ app.get('/webhook', (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
 // CONFIRMAR RESERVA DESDE LINK
+// ─────────────────────────────────────────────────────────────
 app.get('/confirmar/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -119,11 +125,11 @@ app.get('/confirmar/:reservaId', async (req, res) => {
       .update({ estado: 'confirmada' })
       .eq('id', reservaId);
 
-    const msg = `Perfecto, tu reserva en Silbis queda confirmada para el ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0, 5)}. Te esperamos. Si necesitas cualquier cosa, puedes llamarnos al 661 656 648.`;
+    const msg = `Perfecto, tu reserva en Silbis queda confirmada para el ${formatFechaLegible(reserva.fecha)} a las ${String(reserva.hora).slice(0, 5)}. Te esperamos. Si necesitas cualquier cosa, puedes llamarnos al 661 656 648.`;
 
     await enviarWhatsApp(reserva.cliente_telefono, msg);
 
-    res.send(`
+    return res.send(`
       <html>
         <head>
           <meta charset="UTF-8">
@@ -134,7 +140,7 @@ app.get('/confirmar/:reservaId', async (req, res) => {
           <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
             <h1 style="color:#bf3228;margin:0 0 12px">Silbis</h1>
             <h2 style="margin:0 0 16px">Reserva confirmada</h2>
-            <p>Tu mesa está reservada para el <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0, 5)}</strong>.</p>
+            <p>Tu mesa está reservada para el <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${String(reserva.hora).slice(0, 5)}</strong>.</p>
             <p style="color:#a1a1a6;margin-top:20px">C/ Carnicerías, 2, Tudela · 661 656 648</p>
           </div>
         </body>
@@ -142,11 +148,13 @@ app.get('/confirmar/:reservaId', async (req, res) => {
     `);
   } catch (err) {
     console.error('Error confirmando:', err.message);
-    res.status(500).send('Error al confirmar la reserva');
+    return res.status(500).send('Error al confirmar la reserva');
   }
 });
 
+// ─────────────────────────────────────────────────────────────
 // CANCELAR RESERVA DESDE LINK
+// ─────────────────────────────────────────────────────────────
 app.get('/cancelar/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -167,6 +175,7 @@ app.get('/cancelar/:reservaId', async (req, res) => {
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Reserva ya cancelada | Silbis</title>
           </head>
           <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:40px;background:#141416;color:#f5f5f7">
             <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
@@ -184,11 +193,11 @@ app.get('/cancelar/:reservaId', async (req, res) => {
       .update({ estado: 'cancelada' })
       .eq('id', reservaId);
 
-    const msg = `Tu reserva en Silbis del ${formatFechaLegible(reserva.fecha)} a las ${reserva.hora.slice(0, 5)} ha quedado cancelada. Si ha sido un error o quieres hacer otra reserva, escríbenos o llámanos al 661 656 648.`;
+    const msg = `Tu reserva en Silbis del ${formatFechaLegible(reserva.fecha)} a las ${String(reserva.hora).slice(0, 5)} ha quedado cancelada. Si ha sido un error o quieres hacer otra reserva, escríbenos o llámanos al 661 656 648.`;
 
     await enviarWhatsApp(reserva.cliente_telefono, msg);
 
-    res.send(`
+    return res.send(`
       <html>
         <head>
           <meta charset="UTF-8">
@@ -199,7 +208,7 @@ app.get('/cancelar/:reservaId', async (req, res) => {
           <div style="max-width:480px;margin:0 auto;background:#202024;border:1px solid #34343a;border-radius:18px;padding:32px">
             <h1 style="color:#bf3228;margin:0 0 12px">Silbis</h1>
             <h2 style="margin:0 0 16px">Reserva cancelada</h2>
-            <p>Tu reserva del <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${reserva.hora.slice(0, 5)}</strong> ha quedado cancelada.</p>
+            <p>Tu reserva del <strong>${formatFechaLegible(reserva.fecha)}</strong> a las <strong>${String(reserva.hora).slice(0, 5)}</strong> ha quedado cancelada.</p>
             <p style="color:#a1a1a6;margin-top:20px">Si ha sido un error, llámanos al 661 656 648.</p>
           </div>
         </body>
@@ -207,11 +216,13 @@ app.get('/cancelar/:reservaId', async (req, res) => {
     `);
   } catch (err) {
     console.error('Error cancelando:', err.message);
-    res.status(500).send('Error al cancelar');
+    return res.status(500).send('Error al cancelar');
   }
 });
 
+// ─────────────────────────────────────────────────────────────
 // REENVIAR CONFIRMACIÓN DESDE PANEL, COMPATIBILIDAD
+// ─────────────────────────────────────────────────────────────
 app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -238,14 +249,16 @@ app.get('/reenviar-confirmacion/:reservaId', async (req, res) => {
       estado: 'enviado'
     });
 
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (err) {
     console.error('Error reenviando confirmación:', err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
-// ENVIAR AVISO MANUAL DESDE PANEL Y GUARDAR HISTORIAL
+// ─────────────────────────────────────────────────────────────
+// ENVIAR AVISO MANUAL DESDE PANEL
+// ─────────────────────────────────────────────────────────────
 app.post('/reservas/:reservaId/avisos', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -311,7 +324,9 @@ app.post('/reservas/:reservaId/avisos', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
 // CREAR RESERVA MANUAL DESDE PANEL
+// ─────────────────────────────────────────────────────────────
 app.post('/reservas/manual', async (req, res) => {
   const {
     cliente_nombre,
@@ -420,7 +435,9 @@ app.post('/reservas/manual', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
 // EDITAR RESERVA DESDE PANEL
+// ─────────────────────────────────────────────────────────────
 app.put('/reservas/:reservaId', async (req, res) => {
   const { reservaId } = req.params;
 
@@ -478,11 +495,7 @@ app.put('/reservas/:reservaId', async (req, res) => {
     let mesaAsignadaNumero = mesa_numero ? parseInt(mesa_numero, 10) : null;
     let notaFinal = limpiarNotasTecnicas(notas || '');
 
-    notaFinal = notaFinal
-      .replace(/\s*\|?\s*Mesas agrupadas:\s*[0-9+,\s]+/gi, '')
-      .replace(/\s+\|\s+/g, ' | ')
-      .replace(/^\|\s*|\s*\|$/g, '')
-      .trim();
+    notaFinal = limpiarMesasAgrupadas(notaFinal);
 
     const reservaActiva = ['pendiente', 'confirmada'].includes(estadoNormalizado);
 
@@ -566,7 +579,9 @@ app.put('/reservas/:reservaId', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
 // WEBHOOK MENSAJES WHATSAPP
+// ─────────────────────────────────────────────────────────────
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 
@@ -591,7 +606,9 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// PROCESAR MENSAJE
+// ─────────────────────────────────────────────────────────────
+// PROCESAR MENSAJE CHATBOT
+// ─────────────────────────────────────────────────────────────
 async function procesarMensaje(telefono, nombre, texto) {
   let { data: conv } = await sb
     .from('conversaciones')
@@ -624,6 +641,15 @@ async function procesarMensaje(telefono, nombre, texto) {
       .eq('id', conv.id);
   }
 
+  const { data: historialRaw } = await sb
+    .from('mensajes')
+    .select('*')
+    .eq('conversacion_id', conv.id)
+    .order('created_at', { ascending: false })
+    .limit(24);
+
+  const historialAnterior = (historialRaw || []).reverse();
+
   await sb
     .from('mensajes')
     .insert({
@@ -631,15 +657,6 @@ async function procesarMensaje(telefono, nombre, texto) {
       origen: 'user',
       texto
     });
-
-  const { data: historialRaw } = await sb
-    .from('mensajes')
-    .select('*')
-    .eq('conversacion_id', conv.id)
-    .order('created_at', { ascending: false })
-    .limit(30);
-
-  const historial = (historialRaw || []).reverse();
 
   const { data: config } = await sb
     .from('config')
@@ -654,7 +671,7 @@ async function procesarMensaje(telefono, nombre, texto) {
     .order('dia');
 
   const horariosTexto = horarios?.map(h =>
-    `${DIAS_HORARIOS[h.dia]} (${h.turno}): ${h.hora_inicio?.slice(0, 5)} - ${h.hora_fin?.slice(0, 5)}`
+    `${DIAS_HORARIOS[h.dia]} (${h.turno}): ${String(h.hora_inicio).slice(0, 5)} - ${String(h.hora_fin).slice(0, 5)}`
   ).join(', ') || 'jueves a domingo en cena, sábados también en comida';
 
   const fechaHoy = getMadridTodayISO();
@@ -679,19 +696,22 @@ ${calendarioProximosDias}
 INSTRUCCIONES IMPORTANTES:
 
 1. FECHAS:
-Los clientes hablan de forma coloquial. Interpreta expresiones como hoy, mañana, este sábado, el sábado, el sábado que viene, este finde o el viernes usando solo el calendario anterior.
+Los clientes hablan de forma coloquial. Interpreta expresiones como hoy, mañana, este sábado, el sábado, el sábado que viene, este finde, el viernes o el miércoles que viene usando solo el calendario anterior.
 Siempre convierte internamente a formato YYYY-MM-DD.
 Antes de responder, comprueba que el día de la semana coincide con la fecha.
 
-2. PETICIONES ESPECIALES:
-Si el cliente menciona tronas, bebés, silla de ruedas, movilidad reducida, alergias, intolerancias, mesa especial, celebración o cumpleaños, anótalo en notas.
-
-3. FLUJO DE RESERVA:
+2. FLUJO DE RESERVA:
+- Si el cliente dice que quiere reservar, no vuelvas a saludar como si empezara la conversación.
+- Continúa la gestión de la reserva.
 - Recoge número de personas, día, hora y nombre.
+- Si ya te ha dado algún dato, no lo vuelvas a pedir.
 - Verifica que el día y hora estén dentro del horario de apertura.
 - Si hay peticiones especiales, recógelas.
-- Cuando tengas todo, confirma los datos de forma natural y pide confirmación al cliente.
+- Cuando tengas todo, resume los datos y pide confirmación al cliente.
 - Solo cuando el cliente confirme explícitamente con ok, sí, vale, correcto o confirmo, emite la reserva.
+
+3. PETICIONES ESPECIALES:
+Si el cliente menciona tronas, bebés, silla de ruedas, movilidad reducida, alergias, intolerancias, mesa especial, celebración o cumpleaños, anótalo en notas.
 
 4. FORMATO TÉCNICO DE RESERVA:
 Solo cuando el cliente haya confirmado, añade al final una línea así:
@@ -710,12 +730,22 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
 6. Al confirmar, no digas que la reserva está confirmada definitivamente. Di que queda registrada y pendiente de confirmación final si procede.
 7. Si preguntan por el menú, explica que son hamburguesas artesanas y que pueden ver la carta en silbis.es.`;
 
-  const messages = (historial || [])
+  const mensajesHistorial = (historialAnterior || [])
     .filter(m => cleanTechnicalMarkers(m.texto))
     .map(m => ({
       role: m.origen === 'bot' ? 'assistant' : 'user',
       content: cleanTechnicalMarkers(m.texto)
     }));
+
+  const messages = [
+    ...mensajesHistorial,
+    {
+      role: 'user',
+      content: texto
+    }
+  ];
+
+  console.log('Último mensaje enviado a Claude:', texto);
 
   const response = await claude.messages.create({
     model: 'claude-sonnet-4-5',
@@ -724,7 +754,7 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
     messages
   });
 
-  const respuesta = response.content[0].text;
+  const respuesta = response.content[0].text || '';
   const respuestaLimpia = cleanTechnicalMarkers(respuesta);
 
   let reservaProcesada = null;
@@ -750,7 +780,9 @@ Este marcador técnico no es para el cliente. Ponlo al final de tu respuesta, en
   await enviarWhatsApp(telefono, respuestaLimpia || 'Perfecto, he tomado nota.');
 }
 
+// ─────────────────────────────────────────────────────────────
 // CREAR RESERVA PENDIENTE DESDE WHATSAPP
+// ─────────────────────────────────────────────────────────────
 async function crearReservaPendiente(texto, nombre, telefono, config, horarios) {
   try {
     const match = texto.match(/RESERVA_LISTA\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|?(.*)?/);
@@ -847,7 +879,9 @@ Así podemos confirmarte disponibilidad al momento y atenderte mejor.`;
   }
 }
 
+// ─────────────────────────────────────────────────────────────
 // ASIGNACIÓN Y VALIDACIÓN DE MESA
+// ─────────────────────────────────────────────────────────────
 async function calcularAsignacionMesa({
   reservaIdExcluir = null,
   fecha,
@@ -913,13 +947,7 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
   const mesasLibres = mesasOperativas.filter(m => !mesasOcupadas.has(String(m.numero)));
 
   let mesaAsignada = null;
-  let notaFinal = limpiarNotasTecnicas(notas || '');
-
-  notaFinal = notaFinal
-    .replace(/\s*\|?\s*Mesas agrupadas:\s*[0-9+,\s]+/gi, '')
-    .replace(/\s+\|\s+/g, ' | ')
-    .replace(/^\|\s*|\s*\|$/g, '')
-    .trim();
+  let notaFinal = limpiarMesasAgrupadas(limpiarNotasTecnicas(notas || ''));
 
   if (mesaNumeroSolicitada) {
     const mesaManual = mesasOperativas.find(m => String(m.numero) === String(mesaNumeroSolicitada));
@@ -992,7 +1020,9 @@ Puedo buscarte otra hora o, si prefieres, puedes llamarnos al 661 656 648 y vemo
   };
 }
 
+// ─────────────────────────────────────────────────────────────
 // AVISOS AUTOMÁTICOS DEL DÍA
+// ─────────────────────────────────────────────────────────────
 async function procesarAvisosReservasHoy() {
   if (!estaEnHorarioEnvioAvisosHoy()) {
     console.log('Avisos del día no enviados: fuera del horario permitido');
@@ -1066,9 +1096,11 @@ procesarAvisosReservasHoy().catch(err => {
   console.error('Error en arranque de avisos del día:', err.message);
 });
 
+// ─────────────────────────────────────────────────────────────
 // MENSAJES
+// ─────────────────────────────────────────────────────────────
 function construirMensajeRecordatorioConfirmada(reserva) {
-  const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
+  const hora = reserva.hora ? String(reserva.hora).slice(0, 5) : '';
   const personas = reserva.num_personas || '';
 
   return `Hola ${reserva.cliente_nombre}, te recordamos que tienes una reserva confirmada hoy en Silbis a las ${hora}, para ${personas} personas.
@@ -1082,7 +1114,7 @@ function construirMensajePendienteConfirmacion(reserva) {
   const baseUrl = getPublicBaseUrl();
   const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
   const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
-  const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
+  const hora = reserva.hora ? String(reserva.hora).slice(0, 5) : '';
   const personas = reserva.num_personas || '';
 
   return `Hola ${reserva.cliente_nombre}, tu reserva en Silbis para hoy a las ${hora}, para ${personas} personas, sigue pendiente de confirmación.
@@ -1100,7 +1132,7 @@ function construirMensajeUltimoAviso(reserva) {
   const baseUrl = getPublicBaseUrl();
   const linkConfirmar = `${baseUrl}/confirmar/${reserva.id}`;
   const linkCancelar = `${baseUrl}/cancelar/${reserva.id}`;
-  const hora = reserva.hora ? reserva.hora.slice(0, 5) : '';
+  const hora = reserva.hora ? String(reserva.hora).slice(0, 5) : '';
   const personas = reserva.num_personas || '';
 
   return `Hola ${reserva.cliente_nombre}, tu reserva en Silbis para hoy a las ${hora}, para ${personas} personas, sigue pendiente de confirmación.
@@ -1128,14 +1160,19 @@ Cancelar reserva:
 ${linkCancelar}`;
 }
 
+// ─────────────────────────────────────────────────────────────
 // REGISTRO DE AVISOS
+// ─────────────────────────────────────────────────────────────
 async function yaExisteAvisoReserva(reservaId, tipo) {
   const { data, error } = await sb
     .from('avisos_reserva')
-    .select('id')
+    .select('id,tipo')
     .eq('reserva_id', reservaId)
-    .eq('tipo', tipo)
     .eq('estado', 'enviado')
+    .in('tipo', [
+      'recordatorio_confirmada_dia',
+      'recordatorio_pendiente_dia'
+    ])
     .limit(1);
 
   if (error) {
@@ -1171,7 +1208,9 @@ async function registrarAvisoReserva({
   }
 }
 
+// ─────────────────────────────────────────────────────────────
 // ENVIAR WHATSAPP
+// ─────────────────────────────────────────────────────────────
 async function enviarWhatsApp(telefono, mensaje) {
   try {
     await axios.post(
@@ -1197,7 +1236,9 @@ async function enviarWhatsApp(telefono, mensaje) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
 // HELPERS GENERALES
+// ─────────────────────────────────────────────────────────────
 function getPublicBaseUrl() {
   return process.env.BASE_URL || 'https://rezzy.es';
 }
@@ -1310,6 +1351,14 @@ function cleanTechnicalMarkers(text) {
 function limpiarNotasTecnicas(notas) {
   return String(notas || '')
     .replace(/\s*\|?\s*link_confirm:[^\s|]*/gi, '')
+    .replace(/\s+\|\s+/g, ' | ')
+    .replace(/^\|\s*|\s*\|$/g, '')
+    .trim();
+}
+
+function limpiarMesasAgrupadas(notas) {
+  return String(notas || '')
+    .replace(/\s*\|?\s*Mesas agrupadas:\s*[0-9+,\s]+/gi, '')
     .replace(/\s+\|\s+/g, ' | ')
     .replace(/^\|\s*|\s*\|$/g, '')
     .trim();
